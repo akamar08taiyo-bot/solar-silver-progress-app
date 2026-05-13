@@ -1295,42 +1295,48 @@ const MainApp = ({ branchSetting }) => {
   const rankingInsights = useMemo(() => {
     const months = new Set(getFiscalYearMonths(currentMonth));
     const fiscalOrders = orders.filter((o) => months.has(o.targetMonth));
-    const makeMapRankingFrom = (targetOrders, getKey, addValue, filter = () => true) => {
+    const sourceTotal = (targetOrders) => {
+      const total = createSourceCount();
+      for (const order of targetOrders) {
+        if (order.source && total[order.source] !== undefined) total[order.source] += 1;
+      }
+      return total;
+    };
+    const rankingMetrics = [
+      { title: '新規レンタル件数', mode: 'count', filter: (o) => o.category === 'レンタル新規', value: () => 1 },
+      { title: '新規レンタル金額合計', mode: 'amount', filter: (o) => o.category === 'レンタル新規', value: (o) => Number(o.amount || 0) },
+      { title: '特価ベッド依頼数', mode: 'count', filter: (o) => o.category === '特価ベッド', value: () => 1 },
+      { title: '特定福祉用具依頼数', mode: 'count', filter: (o) => o.category === '特定福祉用具販売', value: () => 1 },
+      { title: '特定福祉用具金額合計', mode: 'amount', filter: (o) => o.category === '特定福祉用具販売', value: (o) => Number(o.amount || 0) },
+      { title: '住宅改修依頼数', mode: 'count', filter: (o) => o.category === '住宅改修', value: () => 1 },
+      { title: '住宅改修金額合計', mode: 'amount', filter: (o) => o.category === '住宅改修', value: (o) => Number(o.amount || 0) }
+    ];
+    const buildGroups = (targetOrders) => rankingMetrics.map((metric) => {
       const map = {};
       for (const order of targetOrders) {
-        if (!filter(order)) continue;
-        const key = getKey(order);
-        if (!key) continue;
-        if (!map[key]) map[key] = { label: key, count: 0, amount: 0, sourceCount: createSourceCount() };
-        map[key].count += 1;
-        map[key].amount += addValue(order);
-        if (order.source && map[key].sourceCount[order.source] !== undefined) map[key].sourceCount[order.source] += 1;
+        if (!metric.filter(order)) continue;
+        const key = order.source || 'その他';
+        if (!map[key]) map[key] = { label: key, count: 0, amount: 0 };
+        if (metric.mode === 'amount') {
+          map[key].amount += metric.value(order);
+          map[key].count += 1;
+        } else {
+          map[key].count += metric.value(order);
+        }
       }
-      return Object.values(map).sort((a, b) => (b.amount - a.amount) || (b.count - a.count)).slice(0, 8);
+      const rows = Object.values(map)
+        .sort((a, b) => metric.mode === 'amount' ? (b.amount - a.amount) || (b.count - a.count) : (b.count - a.count) || (b.amount - a.amount))
+        .slice(0, 8);
+      return { title: metric.title, rows, mode: metric.mode };
+    });
+    return {
+      branch: { title: `${BRANCH_NAME} 営業所合計`, sourceCount: sourceTotal(fiscalOrders), groups: buildGroups(fiscalOrders) },
+      personal: salespersons.filter((staff) => staff?.id).map((staff) => {
+        const staffOrders = fiscalOrders.filter((o) => Number(o.salespersonId) === Number(staff.id));
+        return { id: staff.id, name: staff.name, sourceCount: sourceTotal(staffOrders), groups: buildGroups(staffOrders) };
+      })
     };
-    const makeMapRanking = (getKey, addValue, filter = () => true) => makeMapRankingFrom(fiscalOrders, getKey, addValue, filter);
-    const completedAmount = (order) => isCompletedStatus(order.status) ? Number(order.amount || 0) : 0;
-    const countOnly = () => 0;
-    const personalRankings = salespersons
-      .filter((staff) => staff?.id)
-      .map((staff) => ({
-        title: `${staff.name} 個人別 依頼ランキング`,
-        rows: makeMapRankingFrom(
-          fiscalOrders.filter((o) => Number(o.salespersonId) === Number(staff.id)),
-          (o) => o.careHomeName?.trim() || '未入力',
-          countOnly
-        ),
-        mode: 'count'
-      }));
-    return [
-      { title: '事業所別 依頼件数', rows: makeMapRanking((o) => o.careHomeName?.trim() || '未入力', countOnly), mode: 'count' },
-      { title: 'レンタル新規 依頼元ランキング', rows: makeMapRanking((o) => o.source || 'その他', countOnly, (o) => o.category === 'レンタル新規'), mode: 'count' },
-      { title: '住宅改修 売上ランキング', rows: makeMapRanking((o) => o.careHomeName?.trim() || '未入力', completedAmount, (o) => o.category === '住宅改修'), mode: 'amount' },
-      { title: '特定福祉用具 売上ランキング', rows: makeMapRanking((o) => o.careHomeName?.trim() || '未入力', completedAmount, (o) => o.category === '特定福祉用具販売'), mode: 'amount' },
-      { title: '依頼元別 年間依頼ランキング', rows: makeMapRanking((o) => o.source || 'その他', countOnly), mode: 'count' },
-      ...personalRankings
-    ];
-  }, [currentMonth, orders, salespersons]);
+  }, [BRANCH_NAME, currentMonth, orders, salespersons]);
 
   const handleExportPDF = useCallback(async () => {
     if (isGeneratingPDF) return;
@@ -1429,6 +1435,45 @@ const CategoryFilter = ({ items, selected, onSelect }) => <div className="flex f
 
 const ListToolbar = ({ currentYear, currentMonthNum, currentMonth, setCurrentMonth }) => <div className="flex items-center justify-between bg-white p-3 rounded-xl border border-slate-100 shadow-sm"><div className="flex items-center gap-4"><div className="bg-blue-500 text-white px-4 py-1.5 rounded-lg font-bold text-sm shadow-sm">表示中</div><h2 className="text-xl font-bold text-slate-800">{currentYear}年{currentMonthNum}月 <span className="text-slate-600 font-bold ml-1 text-sm">の受注残</span></h2></div><div className="flex items-center gap-2"><button onClick={() => setCurrentMonth(getOffsetMonth(currentMonth, -1))} className="p-2 hover:bg-slate-50 rounded-lg text-slate-600 flex items-center gap-1 font-bold text-sm"><RotateCcw size={16} className="-scale-x-100" />前月</button><button onClick={() => { const now = new Date(); setCurrentMonth(`${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`); }} className="px-3 py-2 bg-slate-50 hover:bg-slate-100 rounded-lg text-slate-700 font-bold text-xs">今月</button><button onClick={() => setCurrentMonth(getOffsetMonth(currentMonth, 1))} className="p-2 hover:bg-slate-50 rounded-lg text-slate-600 flex items-center gap-1 font-bold text-sm">次月 <RotateCcw size={16} className="rotate-180" /></button></div></div>;
 
+const SourceCountSummary = ({ sourceCount }) => (
+  <div className="flex flex-wrap gap-2">
+    {[
+      ['包括', sourceCount?.['包括'] || 0],
+      ['居宅', sourceCount?.['居宅'] || 0],
+      ['連携室', sourceCount?.['退院/連携室'] || 0]
+    ].map(([label, count]) => (
+      <span key={label} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-50 border border-slate-200 text-xs font-extrabold text-slate-800">
+        {label}<span className="text-blue-600">{count}件</span>
+      </span>
+    ))}
+  </div>
+);
+
+const RankingGroupGrid = ({ groups, compact = false }) => (
+  <div className={`grid gap-4 ${compact ? 'grid-cols-1 lg:grid-cols-3' : 'grid-cols-1 md:grid-cols-2 xl:grid-cols-3'}`}>
+    {groups.map((group) => (
+      <div key={group.title} className="border border-slate-100 rounded-xl overflow-hidden bg-slate-50/50">
+        <div className="px-4 py-3 bg-white border-b border-slate-100 font-bold text-slate-800 text-sm">{group.title}</div>
+        <div className="divide-y divide-slate-100">
+          {group.rows.map((row, index) => (
+            <div key={`${group.title}-${row.label}-${index}`} className="px-4 py-2.5 flex items-center justify-between gap-3">
+              <div className="min-w-0 flex items-center gap-2">
+                <span className="w-6 h-6 rounded-lg bg-white border border-slate-200 text-slate-700 flex items-center justify-center text-xs font-extrabold shrink-0">{index + 1}</span>
+                <div className="font-bold text-slate-800 text-sm truncate">{row.label}</div>
+              </div>
+              <div className="text-right shrink-0">
+                <div className="font-extrabold text-blue-600 text-sm whitespace-nowrap">{group.mode === 'amount' ? `${yenK(row.amount)}千円` : `${row.count}件`}</div>
+                {group.mode === 'amount' && <div className="text-[10px] font-bold text-slate-500 whitespace-nowrap">{row.count}件</div>}
+              </div>
+            </div>
+          ))}
+          {!group.rows.length && <div className="px-4 py-6 text-center text-xs font-bold text-slate-500">表示できるデータはまだありません</div>}
+        </div>
+      </div>
+    ))}
+  </div>
+);
+
 const RankingInsightsPanel = ({ insights, compact = false }) => (
   <details className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden print:hidden">
     <summary className="cursor-pointer list-none px-5 py-4 flex items-center justify-between gap-4 hover:bg-slate-50">
@@ -1436,35 +1481,39 @@ const RankingInsightsPanel = ({ insights, compact = false }) => (
         <div className="w-9 h-9 rounded-xl bg-blue-50 text-blue-500 flex items-center justify-center shrink-0"><TrendingUp size={18} /></div>
         <div className="min-w-0">
           <div className="text-base font-bold text-slate-800 truncate">年間ランキングを見る</div>
-          <div className="text-xs font-bold text-slate-500 truncate">事業所別・依頼元別・商品区分別の傾向を確認できます</div>
+          <div className="text-xs font-bold text-slate-500 truncate">依頼元別に、件数・金額の年間上位を確認できます</div>
         </div>
       </div>
       <span className="text-xs font-extrabold text-blue-600 bg-blue-50 px-3 py-1.5 rounded-lg whitespace-nowrap">開く</span>
     </summary>
-    <div className={`border-t border-slate-100 p-4 grid gap-4 ${compact ? 'grid-cols-1 lg:grid-cols-3' : 'grid-cols-1 md:grid-cols-2 xl:grid-cols-3'}`}>
-      {insights.map((group) => (
-        <div key={group.title} className="border border-slate-100 rounded-xl overflow-hidden bg-slate-50/50">
-          <div className="px-4 py-3 bg-white border-b border-slate-100 font-bold text-slate-800 text-sm">{group.title}</div>
-          <div className="divide-y divide-slate-100">
-            {group.rows.map((row, index) => (
-              <div key={`${group.title}-${row.label}-${index}`} className="px-4 py-2.5 flex items-center justify-between gap-3">
-                <div className="min-w-0 flex items-center gap-2">
-                  <span className="w-6 h-6 rounded-lg bg-white border border-slate-200 text-slate-700 flex items-center justify-center text-xs font-extrabold shrink-0">{index + 1}</span>
-                  <div className="min-w-0">
-                    <div className="font-bold text-slate-800 text-sm truncate">{row.label}</div>
-                    {row.sourceCount && row.count > 0 && <div className="text-[10px] font-extrabold text-slate-600 truncate">{formatSourceBreakdown(row.sourceCount)}</div>}
-                  </div>
-                </div>
-                <div className="text-right shrink-0">
-                  <div className="font-extrabold text-blue-600 text-sm whitespace-nowrap">{group.mode === 'amount' ? `${yenK(row.amount)}千円` : `${row.count}件`}</div>
-                  {group.mode === 'amount' && <div className="text-[10px] font-bold text-slate-500 whitespace-nowrap">{row.count}件</div>}
-                </div>
-              </div>
-            ))}
-            {!group.rows.length && <div className="px-4 py-6 text-center text-xs font-bold text-slate-500">表示できるデータはまだありません</div>}
-          </div>
+    <div className="border-t border-slate-100 p-4 space-y-5">
+      <section className="space-y-3">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <h3 className="text-sm font-extrabold text-slate-900">{insights.branch.title}</h3>
+          <SourceCountSummary sourceCount={insights.branch.sourceCount} />
         </div>
-      ))}
+        <RankingGroupGrid groups={insights.branch.groups} compact={compact} />
+      </section>
+      <section className="space-y-3">
+        <h3 className="text-sm font-extrabold text-slate-900">個人別ランキング</h3>
+        <div className="space-y-2">
+          {insights.personal.map((person) => (
+            <details key={person.id} className="border border-slate-200 rounded-xl bg-white overflow-hidden">
+              <summary className="cursor-pointer list-none px-4 py-3 flex items-center justify-between gap-3 hover:bg-slate-50">
+                <div className="font-bold text-slate-900">{person.name}</div>
+                <div className="flex items-center gap-3">
+                  <SourceCountSummary sourceCount={person.sourceCount} />
+                  <span className="text-xs font-extrabold text-blue-600 bg-blue-50 px-3 py-1.5 rounded-lg whitespace-nowrap">表示</span>
+                </div>
+              </summary>
+              <div className="border-t border-slate-100 p-4">
+                <RankingGroupGrid groups={person.groups} compact={compact} />
+              </div>
+            </details>
+          ))}
+          {!insights.personal.length && <div className="px-4 py-6 text-center text-xs font-bold text-slate-500 border border-slate-100 rounded-xl">表示できる担当者がまだありません</div>}
+        </div>
+      </section>
     </div>
   </details>
 );
