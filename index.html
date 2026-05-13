@@ -1268,28 +1268,42 @@ const MainApp = ({ branchSetting }) => {
   const rankingInsights = useMemo(() => {
     const months = new Set(getFiscalYearMonths(currentMonth));
     const fiscalOrders = orders.filter((o) => months.has(o.targetMonth));
-    const makeMapRanking = (getKey, addValue, filter = () => true) => {
+    const makeMapRankingFrom = (targetOrders, getKey, addValue, filter = () => true) => {
       const map = {};
-      for (const order of fiscalOrders) {
+      for (const order of targetOrders) {
         if (!filter(order)) continue;
         const key = getKey(order);
         if (!key) continue;
-        if (!map[key]) map[key] = { label: key, count: 0, amount: 0 };
+        if (!map[key]) map[key] = { label: key, count: 0, amount: 0, sourceCount: createSourceCount() };
         map[key].count += 1;
         map[key].amount += addValue(order);
+        if (order.source && map[key].sourceCount[order.source] !== undefined) map[key].sourceCount[order.source] += 1;
       }
       return Object.values(map).sort((a, b) => (b.amount - a.amount) || (b.count - a.count)).slice(0, 8);
     };
+    const makeMapRanking = (getKey, addValue, filter = () => true) => makeMapRankingFrom(fiscalOrders, getKey, addValue, filter);
     const completedAmount = (order) => isCompletedStatus(order.status) ? Number(order.amount || 0) : 0;
     const countOnly = () => 0;
+    const personalRankings = salespersons
+      .filter((staff) => staff?.id)
+      .map((staff) => ({
+        title: `${staff.name} 個人別 依頼ランキング`,
+        rows: makeMapRankingFrom(
+          fiscalOrders.filter((o) => Number(o.salespersonId) === Number(staff.id)),
+          (o) => o.careHomeName?.trim() || '未入力',
+          countOnly
+        ),
+        mode: 'count'
+      }));
     return [
       { title: '事業所別 依頼件数', rows: makeMapRanking((o) => o.careHomeName?.trim() || '未入力', countOnly), mode: 'count' },
       { title: 'レンタル新規 依頼元ランキング', rows: makeMapRanking((o) => o.source || 'その他', countOnly, (o) => o.category === 'レンタル新規'), mode: 'count' },
       { title: '住宅改修 売上ランキング', rows: makeMapRanking((o) => o.careHomeName?.trim() || '未入力', completedAmount, (o) => o.category === '住宅改修'), mode: 'amount' },
       { title: '特定福祉用具 売上ランキング', rows: makeMapRanking((o) => o.careHomeName?.trim() || '未入力', completedAmount, (o) => o.category === '特定福祉用具販売'), mode: 'amount' },
-      { title: '依頼元別 年間依頼ランキング', rows: makeMapRanking((o) => o.source || 'その他', countOnly), mode: 'count' }
+      { title: '依頼元別 年間依頼ランキング', rows: makeMapRanking((o) => o.source || 'その他', countOnly), mode: 'count' },
+      ...personalRankings
     ];
-  }, [currentMonth, orders]);
+  }, [currentMonth, orders, salespersons]);
 
   const handleExportPDF = useCallback(async () => {
     if (isGeneratingPDF) return;
@@ -1405,7 +1419,10 @@ const RankingInsightsPanel = ({ insights, compact = false }) => (
               <div key={`${group.title}-${row.label}-${index}`} className="px-4 py-2.5 flex items-center justify-between gap-3">
                 <div className="min-w-0 flex items-center gap-2">
                   <span className="w-6 h-6 rounded-lg bg-white border border-slate-200 text-slate-700 flex items-center justify-center text-xs font-extrabold shrink-0">{index + 1}</span>
-                  <span className="font-bold text-slate-800 text-sm truncate">{row.label}</span>
+                  <div className="min-w-0">
+                    <div className="font-bold text-slate-800 text-sm truncate">{row.label}</div>
+                    {row.sourceCount && row.count > 0 && <div className="text-[10px] font-extrabold text-slate-600 truncate">{formatSourceBreakdown(row.sourceCount)}</div>}
+                  </div>
                 </div>
                 <div className="text-right shrink-0">
                   <div className="font-extrabold text-blue-600 text-sm whitespace-nowrap">{group.mode === 'amount' ? `${yenK(row.amount)}千円` : `${row.count}件`}</div>
