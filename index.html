@@ -1,0 +1,1756 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>受注残・進捗管理表</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            fontFamily: {
+              sans: ['system-ui', '-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'sans-serif']
+            }
+          }
+        }
+      };
+    </script>
+    <script type="importmap">
+      {
+        "imports": {
+          "react": "https://esm.sh/react@18.2.0",
+          "react-dom/client": "https://esm.sh/react-dom@18.2.0/client",
+          "lucide-react": "https://esm.sh/lucide-react@0.468.0?external=react",
+          "firebase/app": "https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js",
+          "firebase/auth": "https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js",
+          "firebase/firestore": "https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js"
+        }
+      }
+    </script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  </head>
+  <body class="bg-slate-50">
+    <div id="root"></div>
+    <script type="text/babel" data-type="module">
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createRoot } from 'react-dom/client';
+import {
+  Activity,
+  AlertCircle,
+  ArrowDown,
+  ArrowUp,
+  BarChart3,
+  Calendar,
+  CheckCircle2,
+  FileDown,
+  Info,
+  LineChart,
+  List,
+  Loader2,
+  PieChart,
+  Plus,
+  RotateCcw,
+  Save,
+  Settings,
+  ShieldCheck,
+  Trash2,
+  TrendingUp,
+  User,
+  Users,
+  ZoomIn,
+  ZoomOut
+} from 'lucide-react';
+import { initializeApp } from 'firebase/app';
+import { getAuth, onAuthStateChanged, signInAnonymously, signInWithCustomToken } from 'firebase/auth';
+import { collection, deleteDoc, doc, getFirestore, onSnapshot, setDoc, updateDoc, writeBatch } from 'firebase/firestore';
+
+let firebaseConfig = {
+  apiKey: 'AIzaSyCpONyN6JE1_Xa08vjb2YJ_vwYQhKFQTng',
+  authDomain: 'jyutyu-fc9f9.firebaseapp.com',
+  projectId: 'jyutyu-fc9f9',
+  storageBucket: 'jyutyu-fc9f9.firebasestorage.app',
+  messagingSenderId: '1021858690729',
+  appId: '1:1021858690729:web:eb0e263f8f27fe7aaf5bb8',
+  measurementId: 'G-J7H2P8J3CY'
+};
+
+try {
+  if (typeof __firebase_config !== 'undefined' && __firebase_config) {
+    firebaseConfig = typeof __firebase_config === 'string' ? JSON.parse(__firebase_config) : __firebase_config;
+  }
+} catch (e) {
+  console.error('Firebase config parse error', e);
+}
+
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+const db = getFirestore(app);
+
+const RENTAL_CATEGORIES = ['レンタル新規', '既存追加', '特価ベッド'];
+const SALES_CATEGORIES = ['住宅改修', '特定福祉用具販売', '一般販売', '紙おむつ', '消耗品'];
+const OTHER_SALES_CATS = ['一般販売', '紙おむつ', '消耗品'];
+const allCategories = [...RENTAL_CATEGORIES, ...SALES_CATEGORIES];
+const sources = ['包括', '居宅', '退院/連携室', 'その他'];
+const STATUS_RENTAL = ['未確定', '確定済'];
+const STATUS_SALES = ['未売上', '売上済'];
+const HEAD_OFFICE_SETTING_CODE = '本社';
+const HEAD_OFFICE_ACCESS_CODE = 'TSS000';
+const HEAD_OFFICE_DIRECTORY_APP_ID = 'solar-silver-head-office';
+
+const DEFAULT_CHART_CONFIG = {
+  overall: { rentalNew: 40, bed: 15, renovation: 2500000, equipment: 700000 },
+  personal: { rentalNew: 12, bed: 8, renovation: 1000000, equipment: 300000 }
+};
+
+const CATEGORY_TO_KEY = {
+  レンタル新規: 'rentalNew',
+  特価ベッド: 'bed',
+  住宅改修: 'renovation',
+  特定福祉用具販売: 'equipment',
+  一般販売: 'otherSales',
+  紙おむつ: 'otherSales',
+  消耗品: 'otherSales'
+};
+
+const TREND_CAT_KEY = {
+  レンタル新規: { key: 'rentalNew', isAmt: false },
+  特価ベッド: { key: 'bed', isAmt: false },
+  住宅改修: { key: 'renovation', isAmt: true },
+  特定福祉用具販売: { key: 'equipment', isAmt: true },
+  一般販売: { key: 'other', isAmt: true },
+  紙おむつ: { key: 'other', isAmt: true },
+  消耗品: { key: 'other', isAmt: true }
+};
+
+const STAFF_FIELDS = [
+  { label: '住改予算', field: 'budgetRenovation', color: 'text-blue-600' },
+  { label: '住改件数', field: 'targetRenovationCnt', color: 'text-blue-500' },
+  { label: '特定福祉用具予算', field: 'budgetEquipment', color: 'text-emerald-600' },
+  { label: '特定福祉用具件数', field: 'targetEquipmentCnt', color: 'text-emerald-500' },
+  { label: 'レンタル目標', field: 'targetRentalNew', color: 'text-indigo-600' },
+  { label: '特価目標', field: 'targetBedNew', color: 'text-rose-600' }
+];
+
+const PROGRESS_COLUMNS = [
+  { key: 'rentalBacklogTotalAmt', title: '受注残合計', isBacklog: true, noTarget: true },
+  { key: 'rentalNew', targetKey: 'targetRentalNew', title: 'レンタル新規(件)' },
+  { key: 'bed', targetKey: 'targetBedNew', title: '特価ベッド(台)' },
+  { key: 'renovation', targetKey: 'budgetRenovation', title: '住宅改修(件/額)', isAmount: true },
+  { key: 'equipment', targetKey: 'budgetEquipment', title: '特定福祉用具(件/額)', isAmount: true },
+  { key: 'otherSales', title: 'その他(額)', isAmount: true, noTarget: true }
+];
+
+const CHART_CONFIG_FIELDS = [
+  { label: 'レンタル新規(件)', field: 'rentalNew' },
+  { label: '特価ベッド(台)', field: 'bed' },
+  { label: '住宅改修(円)', field: 'renovation' },
+  { label: '特定福祉用具(円)', field: 'equipment' }
+];
+
+const getStatusesByCategory = (cat) => (RENTAL_CATEGORIES.includes(cat) ? STATUS_RENTAL : STATUS_SALES);
+const isCompletedStatus = (status) => status === '確定済' || status === '売上済';
+const yenK = (amount) => Math.floor(Number(amount || 0) / 1000).toLocaleString();
+const formatMonth = (month) => `${month.split('-')[0]}年${Number(month.split('-')[1])}月`;
+const createSourceCount = () => ({ 包括: 0, 居宅: 0, '退院/連携室': 0 });
+const formatSourceBreakdown = (sourceCount) => `包括:${sourceCount?.['包括'] || 0} 居宅:${sourceCount?.['居宅'] || 0} 連携室:${sourceCount?.['退院/連携室'] || 0}`;
+
+const createAccessKey = (branchCode, accessCode) => {
+  const source = `${branchCode.trim().toLowerCase()}::${accessCode.trim()}`;
+  let h1 = 0xdeadbeef;
+  let h2 = 0x41c6ce57;
+  for (let i = 0; i < source.length; i++) {
+    const ch = source.charCodeAt(i);
+    h1 = Math.imul(h1 ^ ch, 2654435761);
+    h2 = Math.imul(h2 ^ ch, 1597334677);
+  }
+  h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+  h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+  return `${(h2 >>> 0).toString(36)}${(h1 >>> 0).toString(36)}`;
+};
+
+const isHeadOfficeCredential = (branchCode, accessCode) => {
+  const code = String(branchCode || '').trim();
+  return code.includes(HEAD_OFFICE_SETTING_CODE) && String(accessCode || '').trim() === HEAD_OFFICE_ACCESS_CODE;
+};
+
+const createHeadOfficeSetting = () => ({ id: 'head-office', name: '本社管理', accessKey: 'head-office', isHeadOffice: true });
+
+const isStoredHeadOfficeSetting = (setting) => {
+  if (setting?.isHeadOffice) return true;
+  const id = String(setting?.id || '');
+  const name = String(setting?.name || '');
+  if (!id.includes(HEAD_OFFICE_SETTING_CODE) && !name.includes(HEAD_OFFICE_SETTING_CODE)) return false;
+  return setting?.accessKey === createAccessKey(id, HEAD_OFFICE_ACCESS_CODE);
+};
+
+const KNOWN_HEAD_OFFICE_BRANCHES = [
+  { branchId: '行橋', branchName: '行橋営業所', accessCode: 'TSS250' },
+  { branchId: '田川', branchName: '田川営業所', accessCode: 'TSS110' }
+];
+
+const isHeadOfficeBranchRecord = (branch) => {
+  const branchId = String(branch?.branchId || '');
+  const branchName = String(branch?.branchName || '');
+  const appId = String(branch?.appId || '');
+  return branchId.includes(HEAD_OFFICE_SETTING_CODE) || branchName.includes(HEAD_OFFICE_SETTING_CODE) || appId.includes('head-office');
+};
+
+const createBranchAppId = (branchId, accessCode) => `solar-silver-${branchId}-${createAccessKey(branchId, accessCode)}`;
+
+const getKnownHeadOfficeBranches = () => KNOWN_HEAD_OFFICE_BRANCHES.map((branch) => ({
+  appId: createBranchAppId(branch.branchId, branch.accessCode),
+  branchId: branch.branchId,
+  branchName: branch.branchName,
+  source: 'known'
+}));
+
+const mergeHeadOfficeBranches = (remoteBranches) => {
+  const map = new Map();
+  getKnownHeadOfficeBranches().forEach((branch) => map.set(branch.appId, branch));
+  remoteBranches.filter((branch) => !isHeadOfficeBranchRecord(branch)).forEach((branch) => map.set(branch.appId, branch));
+  return Array.from(map.values()).sort((a, b) => String(a.branchName).localeCompare(String(b.branchName), 'ja'));
+};
+
+const JAPANESE_TEXT_INPUT_PROPS = {
+  lang: 'ja',
+  inputMode: 'text',
+  autoCapitalize: 'off',
+  autoCorrect: 'off',
+  spellCheck: false,
+  style: { imeMode: 'active' }
+};
+
+const getOffsetMonth = (monthStr, offset) => {
+  const [y, m] = monthStr.split('-');
+  const d = new Date(Number(y), Number(m) - 1 + offset, 1);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+};
+
+const getFiscalYearMonths = (monthStr) => {
+  const [y, m] = monthStr.split('-');
+  let year = Number(y);
+  if (Number(m) < 4) year -= 1;
+  return Array.from({ length: 12 }, (_, i) => {
+    const d = new Date(year, 3 + i, 1);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  });
+};
+
+const loadScript = (src) =>
+  new Promise((resolve, reject) => {
+    const existing = document.querySelector(`script[src="${src}"]`);
+    if (existing) {
+      if (existing.dataset.loaded === 'true') resolve();
+      existing.addEventListener('load', resolve);
+      existing.addEventListener('error', reject);
+      return;
+    }
+    const script = document.createElement('script');
+    script.src = src;
+    script.onload = () => {
+      script.dataset.loaded = 'true';
+      resolve();
+    };
+    script.onerror = reject;
+    document.head.appendChild(script);
+  });
+
+const Card = ({ children, className = '', noPadding = false }) => (
+  <div className={`bg-white border border-slate-200/70 rounded-xl shadow-sm overflow-hidden ${noPadding ? '' : 'p-4'} ${className}`}>
+    {children}
+  </div>
+);
+
+const LoadingScreen = () => (
+  <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center gap-4">
+    <Loader2 size={48} className="text-blue-500 animate-spin" />
+    <p className="text-slate-500 font-bold text-sm animate-pulse">データを読み込み中...</p>
+  </div>
+);
+
+const SectionHeader = ({ icon: Icon, title, subtitle }) => (
+  <div className="flex items-center gap-3 mb-4">
+    <div className="w-10 h-10 bg-gradient-to-br from-blue-400 to-blue-500 rounded-lg text-white shadow-sm flex items-center justify-center">
+      <Icon size={22} />
+    </div>
+    <div>
+      <h2 className="text-xl font-bold text-slate-800 leading-none">{title}</h2>
+      {subtitle && <p className="text-sm text-slate-600 font-bold uppercase tracking-widest mt-1">{subtitle}</p>}
+    </div>
+  </div>
+);
+
+const AutoSaveInput = React.memo(({ value, onSave, saveId, saveField, type = 'text', className = '', placeholder = '' }) => {
+  const [localVal, setLocalVal] = useState(value ?? (type === 'number' ? 0 : ''));
+  const isEditing = useRef(false);
+  const timerRef = useRef(null);
+
+  useEffect(() => {
+    if (!isEditing.current) setLocalVal(value ?? (type === 'number' ? 0 : ''));
+  }, [value, type]);
+
+  useEffect(() => () => timerRef.current && clearTimeout(timerRef.current), []);
+
+  const save = useCallback(
+    (next) => {
+      const finalValue = next === '' && type === 'number' ? 0 : next;
+      if (saveId !== undefined && saveField !== undefined) onSave(saveId, saveField, finalValue);
+      else onSave(finalValue);
+      setTimeout(() => {
+        isEditing.current = false;
+      }, 900);
+    },
+    [onSave, saveField, saveId, type]
+  );
+
+  const onChange = (e) => {
+    isEditing.current = true;
+    const next = type === 'number' ? (e.target.value === '' ? '' : Number(e.target.value)) : e.target.value;
+    setLocalVal(next);
+    if (timerRef.current) clearTimeout(timerRef.current);
+    timerRef.current = setTimeout(() => save(next), 700);
+  };
+
+  const onBlur = () => {
+    if (timerRef.current) clearTimeout(timerRef.current);
+    save(localVal);
+  };
+
+  return (
+    <input
+      type={type}
+      value={localVal === 0 && type === 'number' ? '' : localVal}
+      onChange={onChange}
+      onBlur={onBlur}
+      onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()}
+      placeholder={placeholder}
+      {...(type === 'text' ? JAPANESE_TEXT_INPUT_PROPS : {})}
+      className={className}
+    />
+  );
+});
+
+const BranchSourceFilter = ({ currentFilter, onChange, prefix }) => (
+  <div className="flex flex-wrap gap-2 bg-slate-50 p-2 rounded-xl items-center shadow-inner mb-4 print:hidden">
+    <span className="text-[10px] sm:text-xs font-bold text-slate-700 whitespace-nowrap bg-white px-2 py-1 rounded shadow-sm border border-slate-200">依頼元</span>
+    <button onClick={() => onChange('すべて')} className={`text-xs font-bold px-4 py-1.5 rounded-lg transition-all shadow-sm ${currentFilter === 'すべて' ? 'bg-blue-500 text-white' : 'bg-white text-slate-700 border border-slate-200'}`}>すべて</button>
+    {sources.map((src) => (
+      <button key={`${prefix}-${src}`} onClick={() => onChange(src)} className={`text-xs font-bold px-4 py-1.5 rounded-lg transition-all shadow-sm ${currentFilter === src ? 'bg-blue-500 text-white' : 'bg-white text-slate-700 border border-slate-200'}`}>
+        {src}
+      </button>
+    ))}
+  </div>
+);
+
+const statRows = (summary) => [
+  { label: 'レンタル新規', actual: summary.rentalNew.doneCnt, forecast: summary.rentalNew.forecastCnt, unit: '件', sourceCount: summary.rentalNew.sourceCount },
+  { label: '特価ベッド', actual: summary.bed.doneCnt, forecast: summary.bed.forecastCnt, unit: '台', sourceCount: summary.bed.sourceCount },
+  { label: '住宅改修', actual: `${summary.renovation.doneCnt}件(${yenK(summary.renovation.doneAmt)}千円)`, forecast: `${summary.renovation.forecastCnt}件(${yenK(summary.renovation.forecastAmt)}千円)`, sourceCount: summary.renovation.sourceCount },
+  { label: '特定福祉用具', actual: `${summary.equipment.doneCnt}件(${yenK(summary.equipment.doneAmt)}千円)`, forecast: `${summary.equipment.forecastCnt}件(${yenK(summary.equipment.forecastAmt)}千円)`, sourceCount: summary.equipment.sourceCount },
+  { label: 'その他販売', actual: yenK(summary.otherSales.doneAmt), forecast: yenK(summary.otherSales.forecastAmt), unit: '千円' }
+];
+
+const BranchSummaryCards = ({ summary }) => (
+  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+    {statRows(summary).map((item) => (
+      <Card key={item.label} className="p-3 sm:p-4 border-slate-200 bg-white shadow-md flex flex-col min-h-[160px] justify-between group">
+        <div className="text-xs sm:text-sm font-bold text-slate-700 uppercase tracking-widest leading-none border-l-4 border-slate-300 pl-3 mb-3 whitespace-nowrap">{item.label}</div>
+        <div className="flex flex-col gap-3 flex-1 justify-center min-w-0">
+          <div className="flex items-center justify-between h-[40px]">
+            <div className="flex items-center gap-1.5 w-[85px] shrink-0"><div className="w-1 h-3.5 bg-slate-200 rounded-full" /><span className="text-sm font-bold text-slate-700">実績</span></div>
+            <span className="text-2xl sm:text-3xl font-bold text-slate-700 leading-none flex-1 truncate text-center">{item.actual}{item.unit && !String(item.actual).includes('(') ? <span className="text-xs ml-0.5 align-bottom">{item.unit}</span> : ''}</span>
+          </div>
+          <div className="flex flex-col border-t border-blue-50 bg-blue-50/20 -mx-4 px-4 pt-3 pb-2 min-h-[85px]">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-1.5 w-[85px] shrink-0"><div className="w-1 h-3 bg-blue-400 rounded-full" /><span className="text-sm font-bold text-blue-600">見込み</span></div>
+              <span className="text-2xl sm:text-3xl font-bold text-blue-600 leading-none flex-1 truncate text-center">{item.forecast}{item.unit && !String(item.forecast).includes('(') ? <span className="text-xs ml-0.5 align-bottom">{item.unit}</span> : ''}</span>
+            </div>
+            {item.sourceCount ? (
+              <div className="flex justify-start mt-2 text-[11px] sm:text-[13px] font-extrabold text-blue-800 gap-x-5 pl-[26px]">
+                <span>包括:{item.sourceCount['包括']}</span><span>居宅:{item.sourceCount['居宅']}</span><span>連携室:{item.sourceCount['退院/連携室']}</span>
+              </div>
+            ) : <div className="mt-2 h-5 invisible" />}
+          </div>
+        </div>
+      </Card>
+    ))}
+  </div>
+);
+
+const BacklogTotalCard = ({ totalAmt }) => (
+  <Card className="p-5 sm:p-6 bg-white border border-slate-200 shadow-lg flex items-center justify-between gap-4">
+    <div className="shrink-0 w-10 h-10 sm:w-14 sm:h-14 bg-blue-50 rounded-2xl text-blue-500 flex items-center justify-center shadow-sm"><Activity size={30} /></div>
+    <div className="min-w-0 flex-1">
+      <div className="text-[10px] sm:text-sm font-bold text-slate-600 uppercase leading-none mb-2 tracking-widest truncate">受注残合計 (レンタル・特価見込み総額)</div>
+      <h3 className="text-2xl sm:text-5xl font-bold text-slate-800 leading-none truncate">¥{yenK(totalAmt)}千円</h3>
+    </div>
+  </Card>
+);
+
+const SetupScreen = ({ onComplete }) => {
+  const [branchCode, setBranchCode] = useState('');
+  const [accessCode, setAccessCode] = useState('');
+  const [error, setError] = useState('');
+
+  const handleSetup = (e) => {
+    e.preventDefault();
+    const code = branchCode.trim();
+    const pass = accessCode.trim();
+    if (!code) {
+      setError('設定コードを入力してください');
+      return;
+    }
+    if (pass.length < 5) {
+      setError('アクセスコードは5文字以上で入力してください');
+      return;
+    }
+    if (isHeadOfficeCredential(code, pass)) {
+      const setting = createHeadOfficeSetting();
+      localStorage.setItem('solar_silver_branch_setting', JSON.stringify(setting));
+      onComplete(setting);
+      return;
+    }
+    const names = { yukuhashi: '行橋営業所', fukuoka: '福岡営業所', kokura: '小倉営業所' };
+    const setting = { id: code, name: names[code] || `${code}営業所`, accessKey: createAccessKey(code, pass) };
+    localStorage.setItem('solar_silver_branch_setting', JSON.stringify(setting));
+    onComplete(setting);
+  };
+
+  return (
+    <div className="min-h-screen bg-slate-50 flex items-center justify-center p-6">
+      <div className="max-w-md w-full bg-white rounded-[2rem] shadow-xl p-8 border border-slate-200">
+        <div className="flex justify-center mb-6"><div className="w-16 h-16 bg-blue-100 rounded-2xl flex items-center justify-center text-blue-500"><Settings size={32} /></div></div>
+        <h1 className="text-2xl font-bold text-center text-slate-800 mb-2">端末設定</h1>
+        <p className="text-sm text-center text-slate-600 mb-8 font-bold leading-relaxed">初回アクセス時の設定です。<br />営業所コードと共有アクセスコードを入力してください。</p>
+        <form onSubmit={handleSetup} className="space-y-5">
+          <input value={branchCode} onChange={(e) => { setBranchCode(e.target.value); setError(''); }} placeholder="設定コード (例: 行橋)" className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3.5 font-bold text-lg outline-none focus:border-blue-400 text-center shadow-sm" {...JAPANESE_TEXT_INPUT_PROPS} />
+          <input type="password" value={accessCode} onChange={(e) => { setAccessCode(e.target.value); setError(''); }} placeholder="アクセスコード（5文字以上）" className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3.5 font-bold text-lg outline-none focus:border-blue-400 text-center shadow-sm" />
+          <p className="text-[11px] text-slate-500 font-bold leading-relaxed text-center">同じ営業所で使う端末には、同じ営業所コードとアクセスコードを入力してください。</p>
+          {error && <p className="text-red-500 text-xs font-bold text-center">{error}</p>}
+          <button type="submit" className="w-full bg-blue-500 text-white font-bold py-4 rounded-xl shadow-md hover:bg-blue-600 active:scale-95 transition-all text-lg">設定を保存して開始</button>
+        </form>
+      </div>
+    </div>
+  );
+};
+
+const NewEntryForm = React.memo(({ salespersons, onSubmit, selectedStaffId, onStaffChange }) => {
+  const [data, setData] = useState({ customerName: '', careHomeName: '', category: RENTAL_CATEGORIES[0], source: sources[0], amount: '', status: '未確定', isCarryOver: false, billingType: 'full' });
+  const [showOptionalCategories, setShowOptionalCategories] = useState(false);
+  const rentalWithBilling = RENTAL_CATEGORIES.includes(data.category) && data.category !== '特価ベッド';
+  const primaryCategories = useMemo(() => allCategories.filter((c) => !OTHER_SALES_CATS.includes(c)), []);
+  const optionalCategories = OTHER_SALES_CATS;
+  const categoryButtonClass = useCallback((category) => `min-h-[74px] sm:min-h-[88px] flex items-center justify-center py-3 sm:py-4 px-1 rounded-xl font-bold text-[10px] sm:text-sm border-2 transition-all ${data.category === category ? 'bg-blue-500 border-blue-500 text-white shadow-lg scale-105' : 'bg-white border-slate-200 text-slate-700 hover:border-blue-400'}`, [data.category]);
+  const handleCategorySelect = useCallback((category) => {
+    setData((prev) => ({ ...prev, category, status: getStatusesByCategory(category)[0], source: OTHER_SALES_CATS.includes(category) ? 'その他' : prev.source }));
+  }, []);
+  const handleOptionalToggle = useCallback(() => {
+    setShowOptionalCategories((open) => {
+      const next = !open;
+      if (!next && OTHER_SALES_CATS.includes(data.category)) {
+        setData((prev) => ({ ...prev, category: RENTAL_CATEGORIES[0], status: getStatusesByCategory(RENTAL_CATEGORIES[0])[0], source: sources[0] }));
+      }
+      return next;
+    });
+  }, [data.category]);
+
+  const handleSub = (e) => {
+    e.preventDefault();
+    if (!data.customerName.trim()) return;
+    onSubmit(data);
+    setData((prev) => ({ ...prev, customerName: '', careHomeName: '', amount: '', isCarryOver: false }));
+  };
+
+  return (
+    <Card className="shadow-2xl border border-slate-200 p-5 sm:p-8 bg-white rounded-[1.5rem] sm:rounded-[2rem]">
+      <form onSubmit={handleSub} className="space-y-6">
+        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-2 text-center">
+          {primaryCategories.map((c) => (
+            <button key={c} type="button" onClick={() => handleCategorySelect(c)} className={categoryButtonClass(c)}>
+              {c === '特定福祉用具販売' ? '特定福祉用具' : c}
+            </button>
+          ))}
+        </div>
+        <div className="pt-2">
+          <button type="button" onClick={handleOptionalToggle} className={`w-full sm:w-auto px-4 py-2 rounded-xl border font-bold text-sm transition-all ${showOptionalCategories ? 'bg-slate-700 text-white border-slate-700 shadow-sm' : 'bg-slate-50 text-slate-700 border-slate-200 hover:border-blue-300 hover:text-blue-600'}`}>
+            {showOptionalCategories ? '− 任意項目を閉じる' : '＋ 任意項目を入力する'}
+          </button>
+          {showOptionalCategories && (
+            <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-2 text-center mt-3">
+              {optionalCategories.map((c) => (
+                <button key={c} type="button" onClick={() => handleCategorySelect(c)} className={categoryButtonClass(c)}>
+                  {c}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6 pt-6 border-t-2 border-slate-100">
+          <Field label="担当者"><select value={selectedStaffId} onChange={(e) => onStaffChange(Number(e.target.value))} className="field-input text-lg">{salespersons.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}</select></Field>
+          <Field label="利用者様名"><input value={data.customerName} onChange={(e) => setData({ ...data, customerName: e.target.value })} placeholder="お名前" className="field-input text-lg" {...JAPANESE_TEXT_INPUT_PROPS} /></Field>
+          <Field label={RENTAL_CATEGORIES.includes(data.category) ? '金額' : '金額(税抜)'}>
+            {rentalWithBilling && (
+              <div className="absolute right-1 -top-4 flex flex-row flex-nowrap bg-slate-100 rounded-lg p-0.5 border border-slate-200 shadow-sm z-10">
+                {['full', 'half'].map((type) => <button key={type} type="button" onClick={() => setData({ ...data, billingType: type })} className={`h-6 min-w-[44px] px-3 text-xs font-bold rounded leading-none whitespace-nowrap ${data.billingType === type ? 'bg-white text-blue-500 shadow-sm' : 'text-slate-600'}`}>{type === 'full' ? '月額' : '半月'}</button>)}
+              </div>
+            )}
+            <input type="number" value={data.amount} onChange={(e) => setData({ ...data, amount: e.target.value })} placeholder="¥" className="field-input text-2xl" />
+          </Field>
+          <Field label="状態"><select value={data.status} onChange={(e) => setData({ ...data, status: e.target.value })} className="field-input text-base">{getStatusesByCategory(data.category).map((s) => <option key={s}>{s}</option>)}</select></Field>
+          {!OTHER_SALES_CATS.includes(data.category) && <Field label="区分"><select value={data.source} onChange={(e) => setData({ ...data, source: e.target.value })} className="field-input text-base">{sources.map((s) => <option key={s}>{s}</option>)}</select></Field>}
+          <Field label="事業所名"><input value={data.careHomeName} onChange={(e) => setData({ ...data, careHomeName: e.target.value })} placeholder="居宅名など" className="field-input text-base" {...JAPANESE_TEXT_INPUT_PROPS} /></Field>
+        </div>
+        <div className="flex flex-col sm:flex-row justify-between items-center gap-6 pt-6 border-t-2 border-slate-100">
+          <label className="flex items-center gap-3 cursor-pointer"><input type="checkbox" checked={data.isCarryOver} onChange={(e) => setData({ ...data, isCarryOver: e.target.checked })} className="w-6 h-6 rounded border-slate-200 text-blue-500 shadow-sm" /><span className="font-bold text-slate-700">翌月繰越として登録</span></label>
+          <button className="w-full sm:w-auto bg-blue-500 text-white font-bold px-12 py-4 rounded-xl shadow-xl flex items-center justify-center gap-3 text-lg hover:bg-blue-600 active:scale-95 transition-all"><Save size={24} /> 案件を登録</button>
+        </div>
+      </form>
+    </Card>
+  );
+});
+
+const Field = ({ label, children }) => (
+  <div className="space-y-1.5 min-w-0 relative">
+    <label className="text-[10px] font-extrabold text-blue-600 mb-1 block uppercase leading-none">{label}</label>
+    {children}
+  </div>
+);
+
+const OrderRow = React.memo(({ order, onUpdate, onDelete, staffName, showStaffName }) => {
+  const changeBilling = async (billingType) => {
+    if (order.billingType === billingType) return;
+    const amount = Number(order.amount || 0);
+    await onUpdate(order.id, 'billingType', billingType);
+    await onUpdate(order.id, 'amount', billingType === 'half' ? Math.floor(amount / 2) : amount * 2);
+  };
+
+  return (
+    <tr className={`group transition-colors border-b border-slate-50 last:border-none ${order.isCarryOver ? 'bg-amber-50/30' : 'hover:bg-blue-50/20'}`}>
+      <td className="py-1 px-2 w-[22%]">
+        <div className="flex items-center gap-1.5 w-full">
+          <div className="flex flex-col gap-0.5 shrink-0">
+            {showStaffName && staffName && <span className="text-[10px] font-bold text-white bg-slate-500 px-1.5 py-0.5 rounded-sm text-center">{staffName}</span>}
+            <select value={order.category} onChange={(e) => onUpdate(order.id, 'category', e.target.value)} className="text-[9px] font-bold text-blue-600 bg-blue-50 border border-blue-100 rounded px-1 py-0.5 appearance-none text-center shadow-sm">
+              {allCategories.map((c) => <option key={c}>{c}</option>)}
+            </select>
+          </div>
+          <AutoSaveInput value={order.customerName} saveId={order.id} saveField="customerName" onSave={onUpdate} className="w-full bg-transparent border-none outline-none font-bold text-sm text-slate-800 px-1 py-0.5 focus:bg-white focus:rounded min-w-0" />
+        </div>
+      </td>
+      <td className="py-1 px-2 w-[18%]"><AutoSaveInput value={order.careHomeName} saveId={order.id} saveField="careHomeName" placeholder="事業所名" onSave={onUpdate} className="w-full bg-transparent border-none outline-none text-xs text-slate-600 font-bold px-1 py-0.5 focus:bg-white focus:rounded" /></td>
+      <td className="py-1 px-2 w-[12%] text-center">
+        {RENTAL_CATEGORIES.includes(order.category) && order.category !== '特価ベッド' && (
+          <div className="flex items-center justify-center bg-slate-50 rounded-lg p-0.5 border border-slate-100">
+            <button onClick={() => changeBilling('full')} className={`px-3.5 py-1.5 text-sm font-bold rounded ${order.billingType !== 'half' ? 'bg-white text-blue-500 shadow-sm' : 'text-slate-600'}`}>月額</button>
+            <button onClick={() => changeBilling('half')} className={`px-3.5 py-1.5 text-sm font-bold rounded ${order.billingType === 'half' ? 'bg-white text-blue-500 shadow-sm' : 'text-slate-600'}`}>半月</button>
+          </div>
+        )}
+      </td>
+      <td className="py-1 px-2 w-[15%] text-right font-bold text-blue-500 text-sm"><AutoSaveInput type="number" value={order.amount} saveId={order.id} saveField="amount" onSave={onUpdate} className="w-full bg-transparent text-right outline-none px-1 py-0.5" /></td>
+      <td className="py-1 px-2 w-[12%] text-center"><select value={order.status} onChange={(e) => onUpdate(order.id, 'status', e.target.value)} className={`text-[11px] font-bold rounded px-1.5 py-0.5 shadow-sm appearance-none text-center ${isCompletedStatus(order.status) ? 'bg-emerald-500 text-white' : 'bg-slate-200 text-slate-700 border border-slate-300'}`}>{getStatusesByCategory(order.category).map((s) => <option key={s}>{s}</option>)}</select></td>
+      <td className="py-1 px-2 w-[8%] text-center align-middle"><div className="flex flex-col items-center justify-center"><span className="text-[9px] font-bold text-slate-600 leading-none mb-0.5">次月</span><input type="checkbox" checked={Boolean(order.isCarryOver)} onChange={(e) => onUpdate(order.id, 'isCarryOver', e.target.checked)} className="w-4 h-4 rounded text-blue-400 cursor-pointer" /></div></td>
+      <td className="py-1 px-2 w-[7%] text-right"><button onClick={() => onDelete(order.id)} className="text-slate-500 hover:text-red-500 transition-all p-1"><Trash2 size={16} /></button></td>
+    </tr>
+  );
+});
+
+const OrderTable = React.memo(({ items, onUpdate, onDelete, salespersons = [], showStaffName = false, selectedCategory = 'すべて', onAddCategory = null }) => {
+  const displayCategories = selectedCategory === 'すべて' ? allCategories : [selectedCategory];
+  const groupedItems = useMemo(() => {
+    const map = {};
+    for (const o of items) {
+      if (!map[o.category]) map[o.category] = [];
+      map[o.category].push(o);
+    }
+    return map;
+  }, [items]);
+  const staffMap = useMemo(() => Object.fromEntries(salespersons.map((s) => [Number(s.id), s.name])), [salespersons]);
+
+  if (!items.length && !onAddCategory) return <div className="p-8 text-center bg-white border-2 border-dashed border-slate-200 rounded-2xl text-slate-500 font-bold text-lg">登録データはありません</div>;
+
+  return (
+    <div className="space-y-4">
+      {displayCategories.map((cat) => {
+        const list = groupedItems[cat] || [];
+        if (!list.length && !onAddCategory) return null;
+        return (
+          <div key={cat} className="bg-white border border-slate-200 shadow-sm rounded-xl overflow-hidden">
+            <div className={`px-4 py-2 flex justify-between items-center font-bold text-xs uppercase tracking-widest ${RENTAL_CATEGORIES.includes(cat) ? 'bg-slate-800' : 'bg-slate-900'} text-white`}>
+              <div className="flex items-center gap-2 shrink-0"><div className="w-1 h-4 bg-blue-400 rounded-full" /><span>{cat === '特定福祉用具販売' ? '特定福祉用具' : cat}</span></div>
+              <span className="font-bold opacity-95 text-sm ml-4 truncate">¥{list.reduce((s, o) => s + Number(o.amount || 0), 0).toLocaleString()}</span>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-left table-fixed min-w-[750px]">
+                <tbody className="divide-y divide-slate-100">{list.map((o) => <OrderRow key={o.id} order={o} onUpdate={onUpdate} onDelete={onDelete} staffName={showStaffName ? staffMap[Number(o.salespersonId)] : null} showStaffName={showStaffName} />)}</tbody>
+                {onAddCategory && (
+                  <tfoot>
+                    <tr>
+                      <td colSpan="7" className="px-3 py-2 bg-slate-50/70">
+                        <button type="button" onClick={() => onAddCategory(cat)} className="w-full border-2 border-dashed border-slate-300 bg-white hover:bg-blue-50 hover:border-blue-300 text-slate-700 hover:text-blue-600 rounded-lg py-2 font-bold text-sm flex items-center justify-center gap-2 transition-all">
+                          <Plus size={16} />この項目に行を追加
+                        </button>
+                      </td>
+                    </tr>
+                  </tfoot>
+                )}
+              </table>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+});
+
+const progressDisplayValue = (p, col, kind) => {
+  const metric = p.current[col.key];
+  if (col.isAmount) return `${metric[`${kind}Cnt`]}件(${yenK(metric[`${kind}Amt`])}千円)`;
+  return metric[`${kind}Cnt`];
+};
+
+const ProgressTable = ({ data, staffIdFilter }) => (
+  <div className="overflow-x-auto">
+    <table className="w-full text-left border-collapse min-w-[1260px] table-fixed">
+      <thead className="bg-slate-50 text-xs text-slate-700 font-bold border-b border-slate-200">
+        <tr>
+          <th className="px-4 py-3 border-r border-slate-200/50 w-[120px]">氏名</th>
+          {PROGRESS_COLUMNS.map((col) => <th key={col.key} className="px-3 py-3 text-center border-r border-slate-200/50 w-[190px] whitespace-nowrap">{col.title}</th>)}
+        </tr>
+      </thead>
+      <tbody className="divide-y divide-slate-100 text-base">
+        {data.filter((p) => staffIdFilter === 'all' || p.id === staffIdFilter).map((p) => (
+          <tr key={p.id} className="hover:bg-blue-50/20 transition-all">
+            <td className="px-4 py-2 border-r border-slate-200/50 font-bold text-slate-800 bg-slate-50/5 text-xl truncate align-middle">{p.name}</td>
+            {PROGRESS_COLUMNS.map((col) => (
+              <td key={col.key} className="px-3 py-2 border-r border-slate-200/50 align-top">
+                <div className="flex flex-col justify-start h-full min-h-[150px]">
+                  {col.isBacklog ? (
+                    <div className="h-[108px] flex flex-col items-center justify-center bg-slate-50/60 rounded-lg border border-slate-100">
+                      <span className="text-xs font-extrabold text-slate-600 mb-2">受注残</span>
+                      <span className="text-[17px] font-extrabold text-slate-800 leading-none whitespace-nowrap">¥{yenK(p.current.rentalBacklogTotalAmt)}千円</span>
+                    </div>
+                  ) : (
+                    <>
+                      <ProgressMetric label="実績" value={progressDisplayValue(p, col, 'done')} />
+                      <ProgressMetric label="見込み" value={progressDisplayValue(p, col, 'forecast')} blue />
+                      <SourceBreakdown sourceCount={p.current[col.key].sourceCount} />
+                    </>
+                  )}
+                  {col.noTarget ? (
+                    <div className="h-[30px]" aria-hidden="true" />
+                  ) : (
+                    <div className="text-xs text-slate-700 mt-auto pt-2 font-bold flex items-center justify-between whitespace-nowrap h-[30px] border-t border-slate-50">
+                      <span>{col.isAmount ? '目標額' : '目標'}</span><span>{col.isAmount ? `¥${Number(p[col.targetKey] || 0).toLocaleString()}` : Number(p[col.targetKey] || 0)}</span>
+                    </div>
+                  )}
+                </div>
+              </td>
+            ))}
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  </div>
+);
+
+const ProgressMetric = ({ label, value, blue = false }) => (
+  <div className={`flex items-center justify-between h-[54px] ${blue ? 'border-t border-blue-50 bg-blue-50/20 -mx-3 px-3' : 'px-0'}`}>
+    <div className="flex items-center gap-1 w-[68px] shrink-0"><div className={`w-1 h-3 rounded-full ${blue ? 'bg-blue-400' : 'bg-slate-200'}`} /><span className={`text-xs font-extrabold whitespace-nowrap ${blue ? 'text-blue-600' : 'text-slate-700'}`}>{label}</span></div>
+    <span className={`font-extrabold leading-none flex-1 text-center text-[16px] whitespace-nowrap ${blue ? 'text-blue-600' : 'text-slate-700'}`}>{value}</span>
+  </div>
+);
+
+const SourceBreakdown = ({ sourceCount }) => (
+  <div className="text-[10px] font-extrabold text-slate-500 text-center whitespace-nowrap leading-none mt-1">
+    {formatSourceBreakdown(sourceCount)}
+  </div>
+);
+
+const StackedBarChart = ({ data, previousData, labels, title, unit, isAmount, yAxisMax, currentMonth }) => {
+  const width = 800;
+  const height = 260;
+  const paddingX = 65;
+  const paddingTop = 18;
+  const paddingBottom = 48;
+  const plotHeight = height - paddingTop - paddingBottom;
+  const totals = data.map((d) => d.total);
+  const previousTotals = previousData.map((d) => d.total);
+  const maxValue = yAxisMax || Math.max(...totals, ...previousTotals, 1);
+  const currentIndex = labels.findIndex((label) => label === currentMonth);
+  const displayValue = currentIndex >= 0 ? totals[currentIndex] : 0;
+  const step = (width - paddingX * 2) / Math.max(labels.length, 1);
+  const barWidth = Math.min(34, step * 0.42);
+  const previousBarWidth = Math.min(28, step * 0.34);
+  const sourceSegments = [
+    { key: 'houkatsu', label: '包括', color: '#60a5fa' },
+    { key: 'kyotaku', label: '居宅', color: '#34d399' },
+    { key: 'other', label: 'その他', color: '#cbd5e1' }
+  ];
+  const yFor = (value) => paddingTop + plotHeight - (Math.min(value, maxValue) / maxValue) * plotHeight;
+  const hFor = (value) => Math.max(0, (Math.min(value, maxValue) / maxValue) * plotHeight);
+
+  return (
+    <Card className="flex flex-col h-full bg-gradient-to-b from-white to-slate-50/20">
+      <h4 className="text-[10px] font-bold text-slate-600 uppercase tracking-widest leading-none mb-1">{title}</h4>
+      <div className="flex items-end justify-between gap-3 mb-2">
+        <div className="text-2xl font-bold text-blue-600 leading-none">{isAmount ? `¥${displayValue.toLocaleString()}` : `${displayValue}${unit}`}</div>
+        <div className="flex items-center gap-3 text-[10px] font-bold text-slate-600">
+          {sourceSegments.slice(0, 2).map((s) => <span key={s.key} className="inline-flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm" style={{ backgroundColor: s.color }} />{s.label}</span>)}
+          <span className="inline-flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm bg-slate-300 opacity-60" />前年</span>
+        </div>
+      </div>
+      <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-auto overflow-visible">
+        {[0, 0.5, 1].map((ratio) => {
+          const y = paddingTop + plotHeight - ratio * plotHeight;
+          const val = maxValue * ratio;
+          return <g key={ratio}><line x1={paddingX} y1={y} x2={width - paddingX + 15} y2={y} stroke="#e2e8f0" strokeWidth="1" strokeDasharray="4 4" /><text x={paddingX - 12} y={y + 5} textAnchor="end" fontSize="15" fill="#334155" fontWeight="900">{isAmount ? `${Math.floor(val / 1000).toLocaleString()}千円` : Math.round(val)}</text></g>;
+        })}
+        {data.map((item, i) => {
+          const xCenter = paddingX + step * i + step / 2;
+          const prev = previousData[i] || { total: 0 };
+          const prevHeight = hFor(prev.total);
+          let stacked = 0;
+          return (
+            <g key={labels[i]}>
+              <rect x={xCenter - previousBarWidth / 2 - barWidth * 0.55} y={paddingTop + plotHeight - prevHeight} width={previousBarWidth} height={prevHeight} rx="3" fill="#94a3b8" opacity="0.28" />
+              {sourceSegments.map((segment) => {
+                const value = item[segment.key] || 0;
+                const segHeight = hFor(stacked + value) - hFor(stacked);
+                const y = yFor(stacked + value);
+                stacked += value;
+                if (!segHeight) return null;
+                return <rect key={segment.key} x={xCenter - barWidth / 2 + barWidth * 0.35} y={y} width={barWidth} height={segHeight} rx="3" fill={segment.color} />;
+              })}
+              {item.total > maxValue && <text x={xCenter + barWidth * 0.35} y={paddingTop - 4} textAnchor="middle" fontSize="12" fill="#ef4444" fontWeight="900">{isAmount ? `${Math.floor(item.total / 1000).toLocaleString()}千` : item.total}</text>}
+              <text x={xCenter} y={height - 12} textAnchor="middle" fontSize="15" fill="#334155" fontWeight="900">{Number(labels[i]?.split('-')[1])}月</text>
+            </g>
+          );
+        })}
+      </svg>
+    </Card>
+  );
+};
+
+const StaffMemberItem = ({ staff, onUpdate, onDelete, onMove, isFirst, isLast }) => (
+  <div className="bg-white rounded-2xl p-6 border border-slate-200 shadow-md transition-all hover:shadow-lg hover:border-blue-200">
+    <div className="flex justify-between items-center mb-6">
+      <div className="flex items-center gap-4 min-w-0">
+        <div className="flex flex-col gap-1 mr-1">
+          <button disabled={isFirst} onClick={() => onMove(staff.id, -1)} className={`p-1 rounded bg-slate-50 ${isFirst ? 'opacity-20 cursor-not-allowed' : 'text-slate-500 hover:text-blue-500'}`}><ArrowUp size={14} /></button>
+          <button disabled={isLast} onClick={() => onMove(staff.id, 1)} className={`p-1 rounded bg-slate-50 ${isLast ? 'opacity-20 cursor-not-allowed' : 'text-slate-500 hover:text-blue-500'}`}><ArrowDown size={14} /></button>
+        </div>
+        <div className="w-12 h-12 bg-blue-50 rounded-xl flex items-center justify-center text-blue-500 shrink-0"><User size={24} /></div>
+        <AutoSaveInput value={staff.name} saveId={staff.id} saveField="name" onSave={onUpdate} className="text-2xl font-bold text-slate-800 bg-transparent border-none focus:ring-0 w-full outline-none min-w-0" />
+      </div>
+      <button onClick={() => onDelete(staff.id)} className="text-slate-500 hover:text-red-500 p-2"><Trash2 size={22} /></button>
+    </div>
+    <div className="grid grid-cols-2 gap-5">
+      {STAFF_FIELDS.map((item) => (
+        <div key={item.field} className="space-y-1.5">
+          <div className={`text-xs font-extrabold ${item.color} uppercase tracking-wider`}>{item.label}</div>
+          <AutoSaveInput type="number" value={staff[item.field]} saveId={staff.id} saveField={item.field} onSave={onUpdate} className="w-full bg-slate-50 border border-slate-100 rounded-xl px-4 py-3 font-bold text-lg outline-none shadow-inner focus:bg-white focus:border-blue-100" placeholder="0" />
+        </div>
+      ))}
+    </div>
+  </div>
+);
+
+const pdfProgressValue = (p, col, kind) => {
+  const metric = p.current[col.key];
+  return col.isAmount ? `${metric[`${kind}Cnt`]}件/${yenK(metric[`${kind}Amt`])}千円` : metric[`${kind}Cnt`];
+};
+
+const PDF_PROGRESS_WIDTHS = ['12%', '14%', '13%', '13%', '16%', '18%', '14%'];
+const PDF_PROGRESS_GRID_COLUMNS = PDF_PROGRESS_WIDTHS.join(' ');
+const pdfCellBorder = '1.2px solid #334155';
+const pdfCellBaseStyle = {
+  borderRight: pdfCellBorder,
+  borderBottom: pdfCellBorder,
+  boxSizing: 'border-box',
+  padding: 0,
+  overflow: 'hidden'
+};
+
+const PdfProgressCell = ({ p, col }) => {
+  if (col.isBacklog) {
+    return (
+      <div style={{ ...pdfCellBaseStyle, height: '25mm' }}>
+        <div style={{ height: '25mm', display: 'grid', gridTemplateRows: '12mm 13mm', alignItems: 'center', textAlign: 'center', color: '#0f172a' }}>
+          <div style={{ fontSize: '9px', fontWeight: 800, lineHeight: 1, whiteSpace: 'nowrap' }}>受注残</div>
+          <div style={{ fontSize: '9.4px', fontWeight: 900, lineHeight: 1, whiteSpace: 'nowrap' }}>¥{yenK(p.current.rentalBacklogTotalAmt)}千円</div>
+        </div>
+      </div>
+    );
+  }
+  return (
+    <div style={{ ...pdfCellBaseStyle, height: '25mm' }}>
+      <div style={{ height: '25mm', display: 'grid', gridTemplateRows: '6.2mm 6.2mm 4.2mm 1.4mm 7mm', alignItems: 'center', textAlign: 'center' }}>
+        <div style={{ fontSize: '8.2px', fontWeight: 800, lineHeight: 1, color: '#0f172a', whiteSpace: 'nowrap' }}>実績:{pdfProgressValue(p, col, 'done')}</div>
+        <div style={{ fontSize: '8.2px', fontWeight: 900, lineHeight: 1, color: '#b91c1c', whiteSpace: 'nowrap' }}>見込み:{pdfProgressValue(p, col, 'forecast')}</div>
+        <div style={{ fontSize: '6.1px', fontWeight: 900, lineHeight: 1, color: '#0f172a', whiteSpace: 'nowrap' }}>{formatSourceBreakdown(p.current[col.key].sourceCount)}</div>
+        <div style={col.noTarget ? {} : { borderTop: '1px dashed #cbd5e1', margin: '0 2.4mm' }} />
+        {col.noTarget ? (
+          <div />
+        ) : (
+          <div style={{ fontSize: '8.3px', fontWeight: 500, lineHeight: 1, color: '#0f172a', whiteSpace: 'nowrap' }}>目標:{col.isAmount ? Number(p[col.targetKey] || 0).toLocaleString() : Number(p[col.targetKey] || 0)}</div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+const PDFTemplate = React.forwardRef(({ branchName, currentMonth, branchSummary, branchTotalPersonDetailedSummary }, ref) => (
+  <div ref={ref} style={{ width: '210mm', background: 'white', position: 'fixed', left: '-10000px', top: '0', color: '#0f172a', zoom: 1, transform: 'none', letterSpacing: 0 }}>
+    <div id="pdf-single-page" className="p-[14mm]" style={{ minHeight: '297mm', display: 'flex', flexDirection: 'column', backgroundColor: '#fff', letterSpacing: 0, fontKerning: 'normal' }}>
+      <div className="flex justify-between items-end border-b-2 border-slate-900 pb-4 mb-8">
+        <div><h1 className="text-3xl font-bold mb-2">受注残・進捗状況報告書</h1><p className="text-xl font-bold text-slate-900">{branchName}</p></div>
+        <p className="text-lg font-bold text-slate-900">{formatMonth(currentMonth)}度</p>
+      </div>
+      <div className="grid grid-cols-2 gap-5 mb-8">{statRows(branchSummary).slice(0, 4).map((item) => <div key={item.label} className="border-2 border-slate-400 rounded-xl p-4"><div className="text-xs font-bold text-slate-900 mb-3">{item.label}</div><div className="flex justify-between text-base mb-3"><span className="font-bold">当月実績:</span><span className="font-bold">{item.actual}{item.unit && !String(item.actual).includes('(') ? item.unit : ''}</span></div><div className="flex justify-between border-t-2 border-slate-300 pt-3 text-red-600 text-base"><span className="font-bold">見込み:</span><span className="font-bold">{item.forecast}{item.unit && !String(item.forecast).includes('(') ? item.unit : ''}</span></div></div>)}</div>
+      <div className="border-2 border-slate-900 rounded-xl pt-1 pb-9 px-6 mb-8 bg-slate-50"><div className="text-sm font-bold text-slate-900 uppercase tracking-widest mb-1">受注残合計 (レンタル・特価見込総額)</div><div className="text-5xl font-bold text-slate-900">¥{yenK(branchSummary.rentalBacklogTotalAmt)}千円</div></div>
+      <h2 className="text-base font-bold mb-4 border-l-8 border-slate-800 pl-4">所員別 進捗ステータス詳細</h2>
+      <div style={{ width: '100%', display: 'grid', gridTemplateColumns: PDF_PROGRESS_GRID_COLUMNS, borderTop: pdfCellBorder, borderLeft: pdfCellBorder, boxSizing: 'border-box', overflow: 'hidden' }}>
+        <div style={{ ...pdfCellBaseStyle, height: '12mm', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: '#f1f5f9', fontSize: '9px', fontWeight: 900, whiteSpace: 'nowrap' }}>氏名</div>
+        {PROGRESS_COLUMNS.map((c) => (
+          <div key={c.key} style={{ ...pdfCellBaseStyle, height: '12mm', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: '#f1f5f9', fontSize: '8.3px', fontWeight: 900, lineHeight: 1.05, whiteSpace: 'nowrap' }}>{c.title}</div>
+        ))}
+        {branchTotalPersonDetailedSummary.map((p) => (
+          <React.Fragment key={p.id}>
+            <div style={{ ...pdfCellBaseStyle, height: '25mm', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: '#f8fafc', fontSize: '12px', fontWeight: 900, whiteSpace: 'nowrap' }}>{p.name}</div>
+            {PROGRESS_COLUMNS.map((c) => <PdfProgressCell key={c.key} p={p} col={c} />)}
+          </React.Fragment>
+        ))}
+      </div>
+      <div className="mt-10 pt-5 text-right text-[10px] text-slate-900 font-bold border-t border-slate-200">太陽シルバーサービス株式会社 {branchName} 進捗管理報告</div>
+    </div>
+  </div>
+));
+
+const MainApp = ({ branchSetting }) => {
+  const BRANCH_ID = branchSetting.id;
+  const BRANCH_NAME = branchSetting.name;
+  const BRANCH_ACCESS_KEY = branchSetting.accessKey || 'legacy';
+  const appId = typeof __app_id !== 'undefined' ? __app_id : `solar-silver-${BRANCH_ID}-${BRANCH_ACCESS_KEY}`;
+  const [user, setUser] = useState(null);
+  const [authInitialized, setAuthInitialized] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
+  const [activeTab, setActiveTab] = useState('branch_total');
+  const [currentMonth, setCurrentMonth] = useState(() => {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  });
+  const [salespersons, setSalespersons] = useState([]);
+  const [orders, setOrders] = useState([]);
+  const [chartConfig, setChartConfig] = useState(DEFAULT_CHART_CONFIG);
+  const [loginHistory, setLoginHistory] = useState([]);
+  const [entryStaffId, setEntryStaffId] = useState(1);
+  const [listStaffId, setListStaffId] = useState('all');
+  const [trendStaffId, setTrendStaffId] = useState('overall');
+  const [branchTotalStaffId, setBranchTotalStaffId] = useState('all');
+  const [branchTotalSourceFilter, setBranchTotalSourceFilter] = useState('すべて');
+  const [listSourceFilter, setListSourceFilter] = useState('すべて');
+  const [notification, setNotification] = useState(null);
+  const [newStaffName, setNewStaffName] = useState('');
+  const [selectedCategoryFilter, setSelectedCategoryFilter] = useState('すべて');
+  const [showBranchPreview, setShowBranchPreview] = useState(false);
+  const [zoomLevel, setZoomLevel] = useState(1);
+  const zoomLevelRef = useRef(1);
+  const printRestoreZoomRef = useRef(1);
+  const importFileRef = useRef(null);
+  const loginRecordedRef = useRef(false);
+
+  const [currentYear, currentMonthNum] = useMemo(() => [currentMonth.split('-')[0], Number(currentMonth.split('-')[1])], [currentMonth]);
+  const showMessage = useCallback((text) => { setNotification(text); setTimeout(() => setNotification(null), 2000); }, []);
+  const handleResetBranchSetting = useCallback(() => {
+    if (!window.confirm('営業所設定を変更しますか？この端末の保存済み設定だけを削除します。')) return;
+    localStorage.removeItem('solar_silver_branch_setting');
+    window.location.reload();
+  }, []);
+
+  useEffect(() => {
+    const style = document.createElement('style');
+    style.textContent = `
+      .field-input{width:100%;background:#f8fafc;border:1px solid #e2e8f0;border-radius:.75rem;padding:.75rem 1rem;font-weight:700;outline:none;box-shadow:0 1px 2px rgba(15,23,42,.04)}
+      .field-input:focus{background:white;border-color:#60a5fa}
+      input[type="number"]::-webkit-outer-spin-button,input[type="number"]::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
+      input[type="number"]{-moz-appearance:textfield;appearance:textfield}
+      #pdf-single-page,#pdf-single-page *{letter-spacing:0;font-kerning:normal;text-rendering:geometricPrecision}
+      #pdf-single-page table{table-layout:fixed;border-collapse:collapse}
+      html.is-exporting-pdf #app-root,html.is-printing #app-root{zoom:1!important;transform:none!important;transform-origin:top left!important}
+      @media print{
+        @page{size:auto;margin:10mm}
+        html,body,#root,#app-root{zoom:1!important;transform:none!important;transform-origin:top left!important;width:auto!important;min-width:0!important;letter-spacing:0!important;-webkit-text-size-adjust:100%!important;text-size-adjust:100%!important}
+        *{letter-spacing:0!important;text-shadow:none!important}
+        body{background:white!important;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+        .print\\:hidden,.print-hidden{display:none!important}
+        table{table-layout:fixed!important;border-collapse:collapse!important}
+        th,td{overflow-wrap:anywhere}
+        .modal-overlay{position:absolute!important;background:white!important;z-index:9999!important;padding:0!important;margin:0!important;top:0!important;left:0!important;width:100vw!important;min-height:100vh!important}
+        .modal-content{max-width:100%!important;box-shadow:none!important;margin:0!important;border:none!important;animation:none!important}
+        .overflow-x-auto,.overflow-y-auto{overflow:visible!important}
+      }
+    `;
+    document.head.appendChild(style);
+    return () => style.remove();
+  }, []);
+
+  useEffect(() => {
+    zoomLevelRef.current = zoomLevel;
+  }, [zoomLevel]);
+
+  useEffect(() => {
+    let ticking = false;
+    const handleWheel = (e) => {
+      if (!e.ctrlKey) return;
+      e.preventDefault();
+      if (!ticking) {
+        window.requestAnimationFrame(() => {
+          setZoomLevel((prev) => Math.min(1.5, Math.max(0.6, e.deltaY < 0 ? prev + 0.05 : prev - 0.05)));
+          ticking = false;
+        });
+        ticking = true;
+      }
+    };
+    window.addEventListener('wheel', handleWheel, { passive: false });
+    return () => window.removeEventListener('wheel', handleWheel);
+  }, []);
+
+  useEffect(() => {
+    const handleBeforePrint = () => {
+      printRestoreZoomRef.current = zoomLevelRef.current;
+      document.documentElement.classList.add('is-printing');
+      setZoomLevel(1);
+    };
+    const handleAfterPrint = () => {
+      document.documentElement.classList.remove('is-printing');
+      setZoomLevel(printRestoreZoomRef.current);
+    };
+    window.addEventListener('beforeprint', handleBeforePrint);
+    window.addEventListener('afterprint', handleAfterPrint);
+    return () => {
+      window.removeEventListener('beforeprint', handleBeforePrint);
+      window.removeEventListener('afterprint', handleAfterPrint);
+    };
+  }, []);
+
+  useEffect(() => {
+    const initAuth = async () => {
+      try {
+        let signedIn = false;
+        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+          try {
+            await signInWithCustomToken(auth, __initial_auth_token);
+            signedIn = true;
+          } catch {}
+        }
+        if (!signedIn) await signInAnonymously(auth);
+      } finally {
+        setAuthInitialized(true);
+      }
+    };
+    initAuth();
+    return onAuthStateChanged(auth, setUser);
+  }, []);
+
+  useEffect(() => {
+    if (!authInitialized || !user || !appId) return;
+    let ordersLoaded = false;
+    let staffLoaded = false;
+    let configLoaded = false;
+    let loaded = false;
+    const checkLoading = () => {
+      if (!loaded && ordersLoaded && staffLoaded && configLoaded) {
+        loaded = true;
+        setTimeout(() => setIsLoading(false), 300);
+      }
+    };
+    const base = ['artifacts', appId, 'public', 'data'];
+    const unsubscribeOrders = onSnapshot(collection(db, ...base, 'orders'), (snap) => {
+      setOrders(snap.docs.map((d) => ({ ...d.data(), id: d.id })));
+      ordersLoaded = true;
+      checkLoading();
+    }, () => setIsLoading(false));
+    const unsubscribeStaff = onSnapshot(collection(db, ...base, 'staff'), async (snap) => {
+      if (snap.empty) {
+        setSalespersons([]);
+      } else {
+        const list = snap.docs.map((d) => ({ ...d.data(), id: Number(d.id) })).sort((a, b) => (a.orderIndex ?? 0) - (b.orderIndex ?? 0));
+        setSalespersons(list);
+        if (!list.some((s) => Number(s.id) === Number(entryStaffId)) && list[0]) setEntryStaffId(list[0].id);
+      }
+      staffLoaded = true;
+      checkLoading();
+    }, () => setIsLoading(false));
+    const unsubscribeConfig = onSnapshot(doc(db, ...base, 'config', 'settings'), (snap) => {
+      if (snap.exists()) setChartConfig({ ...DEFAULT_CHART_CONFIG, ...snap.data() });
+      else setDoc(doc(db, ...base, 'config', 'settings'), DEFAULT_CHART_CONFIG);
+      configLoaded = true;
+      checkLoading();
+    }, () => setIsLoading(false));
+    const unsubscribeLoginHistory = onSnapshot(collection(db, ...base, 'loginHistory'), (snap) => {
+      setLoginHistory(snap.docs.map((d) => ({ ...d.data(), id: d.id })).sort((a, b) => String(b.loginAt || '').localeCompare(String(a.loginAt || ''))).slice(0, 30));
+    }, () => {});
+    return () => { unsubscribeOrders(); unsubscribeStaff(); unsubscribeConfig(); unsubscribeLoginHistory(); };
+  }, [appId, authInitialized, entryStaffId, user]);
+
+  useEffect(() => {
+    if (!authInitialized || !user || !appId || branchSetting.isHeadOffice) return;
+    setDoc(doc(db, 'artifacts', HEAD_OFFICE_DIRECTORY_APP_ID, 'public', 'data', 'branches', appId), {
+      appId,
+      branchId: BRANCH_ID,
+      branchName: BRANCH_NAME,
+      updatedAt: new Date().toISOString()
+    }, { merge: true }).catch(() => {});
+  }, [BRANCH_ID, BRANCH_NAME, appId, authInitialized, branchSetting.isHeadOffice, user]);
+
+  useEffect(() => {
+    if (!authInitialized || !user || !appId || branchSetting.isHeadOffice || loginRecordedRef.current) return;
+    loginRecordedRef.current = true;
+    const deviceIdKey = 'solar_silver_device_id';
+    let deviceId = localStorage.getItem(deviceIdKey);
+    if (!deviceId) {
+      deviceId = `device_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      localStorage.setItem(deviceIdKey, deviceId);
+    }
+    const loginAt = new Date().toISOString();
+    setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'loginHistory', `${loginAt}_${deviceId}`), {
+      loginAt,
+      branchId: BRANCH_ID,
+      branchName: BRANCH_NAME,
+      deviceId,
+      deviceName: navigator.platform || 'unknown',
+      userAgent: navigator.userAgent || '',
+      authUid: user.uid || ''
+    }).catch(() => {});
+  }, [BRANCH_ID, BRANCH_NAME, appId, authInitialized, branchSetting.isHeadOffice, user]);
+
+  const basePath = useMemo(() => ['artifacts', appId, 'public', 'data'], [appId]);
+  const currentOrders = useMemo(() => orders.filter((o) => o.targetMonth === currentMonth), [orders, currentMonth]);
+  const entryStaffOrders = useMemo(() => activeTab === 'new_entry' ? currentOrders.filter((o) => Number(o.salespersonId) === Number(entryStaffId)) : [], [activeTab, currentOrders, entryStaffId]);
+  const listOrders = useMemo(() => {
+    if (activeTab !== 'list') return [];
+    let filtered = currentOrders;
+    if (listStaffId !== 'all') filtered = filtered.filter((o) => Number(o.salespersonId) === Number(listStaffId));
+    if (listSourceFilter !== 'すべて') filtered = filtered.filter((o) => o.source === listSourceFilter);
+    return filtered;
+  }, [activeTab, currentOrders, listSourceFilter, listStaffId]);
+
+  const updateStaffField = useCallback(async (id, field, value) => updateDoc(doc(db, ...basePath, 'staff', String(id)), { [field]: value }), [basePath]);
+  const updateOrderField = useCallback(async (id, field, value) => {
+    const updateData = { [field]: value };
+    if (field === 'category') updateData.status = getStatusesByCategory(value)[0];
+    await updateDoc(doc(db, ...basePath, 'orders', id), updateData);
+  }, [basePath]);
+  const deleteOrder = useCallback(async (id) => { await deleteDoc(doc(db, ...basePath, 'orders', id)); showMessage('削除しました'); }, [basePath, showMessage]);
+
+  const handleEntrySubmit = useCallback(async (data) => {
+    const newId = `order_${Date.now()}`;
+    let finalAmount = Number(data.amount || 0);
+    if (data.billingType === 'half') finalAmount = Math.floor(finalAmount / 2);
+    await setDoc(doc(db, ...basePath, 'orders', newId), { ...data, targetMonth: currentMonth, salespersonId: entryStaffId, amount: finalAmount, createdAt: new Date().toISOString() });
+    showMessage('登録しました');
+  }, [basePath, currentMonth, entryStaffId, showMessage]);
+
+  const handleAddListRow = useCallback(async (category = RENTAL_CATEGORIES[0]) => {
+    const targetStaffId = listStaffId === 'all' ? (salespersons[0]?.id || entryStaffId) : listStaffId;
+    if (!targetStaffId) return showMessage('先にマスタ設定で担当者を追加してください');
+    const newId = `order_${Date.now()}`;
+    await setDoc(doc(db, ...basePath, 'orders', newId), {
+      customerName: '',
+      careHomeName: '',
+      category,
+      source: OTHER_SALES_CATS.includes(category) ? 'その他' : sources[0],
+      amount: '',
+      status: getStatusesByCategory(category)[0],
+      isCarryOver: false,
+      billingType: 'full',
+      targetMonth: currentMonth,
+      salespersonId: Number(targetStaffId),
+      createdAt: new Date().toISOString()
+    });
+    showMessage(`${category === '特定福祉用具販売' ? '特定福祉用具' : category}に行を追加しました`);
+  }, [basePath, currentMonth, entryStaffId, listStaffId, salespersons, showMessage]);
+
+  const handleMoveStaff = useCallback(async (id, direction) => {
+    const index = salespersons.findIndex((s) => s.id === id);
+    const targetIndex = index + direction;
+    if (targetIndex < 0 || targetIndex >= salespersons.length) return;
+    const batch = writeBatch(db);
+    batch.update(doc(db, ...basePath, 'staff', String(salespersons[index].id)), { orderIndex: targetIndex });
+    batch.update(doc(db, ...basePath, 'staff', String(salespersons[targetIndex].id)), { orderIndex: index });
+    await batch.commit();
+  }, [basePath, salespersons]);
+
+  const handleUpdateChartConfig = useCallback(async (group, field, value) => {
+    const newConfig = { ...chartConfig, [group]: { ...chartConfig[group], [field]: value } };
+    await setDoc(doc(db, ...basePath, 'config', 'settings'), newConfig);
+  }, [basePath, chartConfig]);
+
+  const handleExportData = useCallback(() => {
+    const payload = {
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      branch: { id: BRANCH_ID, name: BRANCH_NAME },
+      orders,
+      salespersons,
+      chartConfig
+    };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `${BRANCH_NAME}_受注残進捗データ_${new Date().toISOString().slice(0, 10)}.json`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+    showMessage('データを書き出しました');
+  }, [BRANCH_ID, BRANCH_NAME, chartConfig, orders, salespersons, showMessage]);
+
+  const commitImportOperations = useCallback(async (operations) => {
+    for (let i = 0; i < operations.length; i += 400) {
+      const batch = writeBatch(db);
+      operations.slice(i, i + 400).forEach((operation) => operation(batch));
+      await batch.commit();
+    }
+  }, []);
+
+  const handleImportData = useCallback(async (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+    try {
+      const text = await file.text();
+      const payload = JSON.parse(text);
+      if (!Array.isArray(payload.orders) || !Array.isArray(payload.salespersons)) throw new Error('Invalid data');
+      if (!window.confirm('現在のデータを読み込みファイルで上書きします。実行しますか？')) return;
+      const operations = [];
+      orders.forEach((order) => operations.push((batch) => batch.delete(doc(db, ...basePath, 'orders', order.id))));
+      salespersons.forEach((staff) => operations.push((batch) => batch.delete(doc(db, ...basePath, 'staff', String(staff.id)))));
+      payload.orders.forEach((order) => {
+        if (!order?.id) return;
+        const { id, ...data } = order;
+        operations.push((batch) => batch.set(doc(db, ...basePath, 'orders', id), data));
+      });
+      payload.salespersons.forEach((staff, index) => {
+        if (!staff?.id) return;
+        operations.push((batch) => batch.set(doc(db, ...basePath, 'staff', String(staff.id)), { ...staff, orderIndex: staff.orderIndex ?? index }));
+      });
+      await commitImportOperations(operations);
+      if (payload.chartConfig) await setDoc(doc(db, ...basePath, 'config', 'settings'), { ...DEFAULT_CHART_CONFIG, ...payload.chartConfig });
+      showMessage('データを読み込みました');
+    } catch (error) {
+      console.error(error);
+      showMessage('読み込みに失敗しました');
+    }
+  }, [basePath, commitImportOperations, orders, salespersons, showMessage]);
+
+  const handleCarryOverChecked = useCallback(async () => {
+    const nextMonth = getOffsetMonth(currentMonth, 1);
+    const toCarry = listOrders.filter((o) => o.isCarryOver);
+    if (!toCarry.length) return showMessage('対象がありません');
+    const batch = writeBatch(db);
+    toCarry.forEach((o) => batch.update(doc(db, ...basePath, 'orders', o.id), { targetMonth: nextMonth, isCarryOver: false }));
+    await batch.commit();
+    showMessage('次月へ移行しました');
+  }, [basePath, currentMonth, listOrders, showMessage]);
+
+  const summarize = useCallback((targetOrders) => {
+    const init = () => ({ doneCnt: 0, doneAmt: 0, forecastCnt: 0, forecastAmt: 0, sourceCount: createSourceCount() });
+    const summary = { rentalNew: init(), bed: init(), renovation: init(), equipment: init(), otherSales: init(), rentalBacklogTotalAmt: 0 };
+    for (const o of targetOrders) {
+      const key = CATEGORY_TO_KEY[o.category];
+      const target = key ? summary[key] : null;
+      const amt = Number(o.amount || 0);
+      const done = isCompletedStatus(o.status);
+      if (target) {
+        target.forecastCnt += 1;
+        target.forecastAmt += amt;
+        if (o.source && target.sourceCount?.[o.source] !== undefined) target.sourceCount[o.source] += 1;
+        if (done) {
+          target.doneCnt += 1;
+          target.doneAmt += amt;
+        }
+      }
+      if (!done && RENTAL_CATEGORIES.includes(o.category)) summary.rentalBacklogTotalAmt += amt;
+    }
+    return summary;
+  }, []);
+
+  const branchSummary = useMemo(() => {
+    const targetOrders = branchTotalSourceFilter === 'すべて' ? currentOrders : currentOrders.filter((o) => o.source === branchTotalSourceFilter);
+    return summarize(targetOrders);
+  }, [branchTotalSourceFilter, currentOrders, summarize]);
+
+  const staffSummary = useCallback((sourceFilter = 'すべて') => {
+    const targetOrders = sourceFilter === 'すべて' ? currentOrders : currentOrders.filter((o) => o.source === sourceFilter);
+    const staffStats = {};
+    salespersons.forEach((s) => {
+      staffStats[s.id] = {
+        rentalNew: { doneCnt: 0, doneAmt: 0, forecastCnt: 0, forecastAmt: 0, sourceCount: createSourceCount() },
+        bed: { doneCnt: 0, doneAmt: 0, forecastCnt: 0, forecastAmt: 0, sourceCount: createSourceCount() },
+        renovation: { doneCnt: 0, doneAmt: 0, forecastCnt: 0, forecastAmt: 0, sourceCount: createSourceCount() },
+        equipment: { doneCnt: 0, doneAmt: 0, forecastCnt: 0, forecastAmt: 0, sourceCount: createSourceCount() },
+        otherSales: { doneCnt: 0, doneAmt: 0, forecastCnt: 0, forecastAmt: 0, sourceCount: createSourceCount() },
+        rentalBacklogTotalAmt: 0
+      };
+    });
+    for (const o of targetOrders) {
+      const stats = staffStats[Number(o.salespersonId)];
+      if (!stats) continue;
+      const amt = Number(o.amount || 0);
+      const done = isCompletedStatus(o.status);
+      if (!done && RENTAL_CATEGORIES.includes(o.category)) stats.rentalBacklogTotalAmt += amt;
+      const key = CATEGORY_TO_KEY[o.category];
+      if (!key) continue;
+      stats[key].forecastCnt += 1;
+      stats[key].forecastAmt += amt;
+      if (o.source && stats[key].sourceCount?.[o.source] !== undefined) stats[key].sourceCount[o.source] += 1;
+      if (done) {
+        stats[key].doneCnt += 1;
+        stats[key].doneAmt += amt;
+      }
+    }
+    return salespersons.map((s) => ({ ...s, current: staffStats[s.id] }));
+  }, [currentOrders, salespersons]);
+
+  const branchTotalPersonDetailedSummary = useMemo(() => staffSummary(branchTotalSourceFilter), [branchTotalSourceFilter, staffSummary]);
+  const personDetailedSummary = useMemo(() => staffSummary('すべて'), [staffSummary]);
+
+  const trendData = useMemo(() => {
+    const months = getFiscalYearMonths(currentMonth);
+    const previousMonths = months.map((m) => getOffsetMonth(m, -12));
+    const targetOrders = trendStaffId === 'overall' ? orders : orders.filter((o) => Number(o.salespersonId) === Number(trendStaffId));
+    const emptyBars = () => Array.from({ length: 12 }, () => ({ total: 0, houkatsu: 0, kyotaku: 0, other: 0 }));
+    const series = { rentalNew: emptyBars(), bed: emptyBars(), renovation: emptyBars(), equipment: emptyBars(), other: emptyBars() };
+    const previousSeries = { rentalNew: emptyBars(), bed: emptyBars(), renovation: emptyBars(), equipment: emptyBars(), other: emptyBars() };
+    const monthToIndex = Object.fromEntries(months.map((m, i) => [m, i]));
+    const previousMonthToIndex = Object.fromEntries(previousMonths.map((m, i) => [m, i]));
+    const addToSeries = (target, index, key, value, source) => {
+      const sourceKey = source === '包括' ? 'houkatsu' : source === '居宅' ? 'kyotaku' : 'other';
+      target[key][index].total += value;
+      target[key][index][sourceKey] += value;
+    };
+    for (const o of targetOrders) {
+      if (!isCompletedStatus(o.status)) continue;
+      const cat = TREND_CAT_KEY[o.category];
+      if (!cat) continue;
+      const value = cat.isAmt ? Number(o.amount || 0) : 1;
+      const index = monthToIndex[o.targetMonth];
+      if (index !== undefined) addToSeries(series, index, cat.key, value, o.source);
+      const previousIndex = previousMonthToIndex[o.targetMonth];
+      if (previousIndex !== undefined) addToSeries(previousSeries, previousIndex, cat.key, value, o.source);
+    }
+    return { months, series, previousSeries };
+  }, [currentMonth, orders, trendStaffId]);
+
+  const rankingInsights = useMemo(() => {
+    const months = new Set(getFiscalYearMonths(currentMonth));
+    const fiscalOrders = orders.filter((o) => months.has(o.targetMonth));
+    const makeMapRanking = (getKey, addValue, filter = () => true) => {
+      const map = {};
+      for (const order of fiscalOrders) {
+        if (!filter(order)) continue;
+        const key = getKey(order);
+        if (!key) continue;
+        if (!map[key]) map[key] = { label: key, count: 0, amount: 0 };
+        map[key].count += 1;
+        map[key].amount += addValue(order);
+      }
+      return Object.values(map).sort((a, b) => (b.amount - a.amount) || (b.count - a.count)).slice(0, 8);
+    };
+    const completedAmount = (order) => isCompletedStatus(order.status) ? Number(order.amount || 0) : 0;
+    const countOnly = () => 0;
+    return [
+      { title: '事業所別 依頼件数', rows: makeMapRanking((o) => o.careHomeName?.trim() || '未入力', countOnly), mode: 'count' },
+      { title: 'レンタル新規 依頼元ランキング', rows: makeMapRanking((o) => o.source || 'その他', countOnly, (o) => o.category === 'レンタル新規'), mode: 'count' },
+      { title: '住宅改修 売上ランキング', rows: makeMapRanking((o) => o.careHomeName?.trim() || '未入力', completedAmount, (o) => o.category === '住宅改修'), mode: 'amount' },
+      { title: '特定福祉用具 売上ランキング', rows: makeMapRanking((o) => o.careHomeName?.trim() || '未入力', completedAmount, (o) => o.category === '特定福祉用具販売'), mode: 'amount' },
+      { title: '依頼元別 年間依頼ランキング', rows: makeMapRanking((o) => o.source || 'その他', countOnly), mode: 'count' }
+    ];
+  }, [currentMonth, orders]);
+
+  const handleExportPDF = useCallback(async () => {
+    if (isGeneratingPDF) return;
+    const restoreZoom = zoomLevelRef.current;
+    setIsGeneratingPDF(true);
+    document.documentElement.classList.add('is-exporting-pdf');
+    setZoomLevel(1);
+    showMessage('印刷用データを準備しています...');
+    try {
+      await Promise.all([
+        loadScript('https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js'),
+        loadScript('https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js')
+      ]);
+      await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      const template = document.getElementById('pdf-single-page');
+      const canvas = await window.html2canvas(template, { scale: 2, useCORS: true, logging: false, backgroundColor: '#ffffff' });
+      const imgData = canvas.toDataURL('image/jpeg', 0.95);
+      const { jsPDF } = window.jspdf;
+      const pdf = new jsPDF({ orientation: 'p', unit: 'mm', format: 'a4', compress: true });
+      const pdfWidth = pdf.internal.pageSize.getWidth();
+      const pdfHeight = (canvas.height * pdfWidth) / canvas.width;
+      pdf.addImage(imgData, 'JPEG', 0, 0, pdfWidth, pdfHeight);
+      pdf.save(`${BRANCH_NAME}_進捗_${currentMonth}.pdf`);
+      showMessage('印刷用PDFを保存しました');
+    } catch (error) {
+      console.error(error);
+      showMessage('PDFの生成に失敗しました');
+    } finally {
+      document.documentElement.classList.remove('is-exporting-pdf');
+      setZoomLevel(restoreZoom);
+      setIsGeneratingPDF(false);
+    }
+  }, [BRANCH_NAME, currentMonth, isGeneratingPDF, showMessage]);
+
+  if (isLoading) return <LoadingScreen />;
+
+  const tabs = [
+    { id: 'new_entry', label: '登録', icon: Plus },
+    { id: 'list', label: '受注残一覧', icon: List },
+    { id: 'branch_total', label: '営業所合計', icon: PieChart },
+    { id: 'summary', label: '目標進捗', icon: BarChart3 },
+    { id: 'trend', label: '推移グラフ', icon: LineChart },
+    { id: 'compliance', label: '使い方', icon: Info },
+    { id: 'master', label: 'マスタ設定', icon: Settings }
+  ];
+
+  return (
+    <div id="app-root" className="min-h-screen bg-slate-50 text-slate-800 font-sans pb-12 antialiased" style={{ zoom: zoomLevel }}>
+      {notification && <div className="fixed top-6 left-1/2 -translate-x-1/2 z-[100] px-6 py-3 rounded-xl shadow-xl font-bold text-sm bg-slate-900 text-white flex items-center gap-3 border border-white/10 print:hidden"><CheckCircle2 size={18} className="text-emerald-400" />{notification}</div>}
+      <PDFTemplate branchName={BRANCH_NAME} currentMonth={currentMonth} branchSummary={branchSummary} branchTotalPersonDetailedSummary={branchTotalPersonDetailedSummary} />
+      <header className="bg-white border-b border-slate-100 sticky top-0 z-50 shadow-sm print:hidden">
+        <div className="max-w-6xl mx-auto px-5 h-20 flex items-center justify-between">
+          <div className="flex items-center gap-4"><ShieldCheck size={32} className="text-blue-500 hidden sm:block" /><div><h1 className="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight">受注残・進捗管理表</h1><p className="text-xs font-bold text-blue-500">{BRANCH_NAME}</p></div></div>
+          <div className="flex items-center gap-3">
+            <button onClick={handleResetBranchSetting} className="hidden sm:block text-xs font-bold text-slate-600 bg-slate-50 hover:bg-slate-100 border border-slate-200 px-3 py-2 rounded-xl">設定変更</button>
+            <div className="hidden md:flex items-center bg-slate-50 rounded-xl p-1 shadow-inner border border-slate-200"><button onClick={() => setZoomLevel((p) => Math.max(0.6, p - 0.1))} className="p-1.5 text-slate-600 hover:text-blue-500 hover:bg-white rounded-lg"><ZoomOut size={16} /></button><span className="text-xs font-bold text-slate-800 w-10 text-center">{Math.round(zoomLevel * 100)}%</span><button onClick={() => setZoomLevel((p) => Math.min(1.5, p + 0.1))} className="p-1.5 text-slate-600 hover:text-blue-500 hover:bg-white rounded-lg"><ZoomIn size={16} /></button></div>
+            <div className="flex items-center gap-2 bg-slate-50 px-3 sm:px-4 py-2 sm:py-2.5 rounded-xl shadow-inner border border-slate-200"><Calendar size={18} className="text-slate-500 hidden sm:block" /><input type="month" value={currentMonth} onChange={(e) => setCurrentMonth(e.target.value)} className="bg-transparent border-none text-sm sm:text-base font-bold text-slate-800 outline-none cursor-pointer" /></div>
+          </div>
+        </div>
+      </header>
+      <nav className="bg-white border-b border-slate-100 sticky top-20 z-40 shadow-sm print:hidden">
+        <div className="max-w-6xl mx-auto flex overflow-x-auto h-16 sm:h-20">
+          {tabs.map((tab) => <button key={tab.id} onClick={() => setActiveTab(tab.id)} className={`flex-1 flex flex-col items-center justify-center min-w-[90px] border-b-4 font-bold text-xs sm:text-base transition-all gap-1 sm:gap-2 ${activeTab === tab.id ? 'border-blue-400 text-blue-500 bg-blue-50/20' : 'border-transparent text-slate-600 hover:text-slate-800'}`}><tab.icon size={20} /><span>{tab.label}</span></button>)}
+        </div>
+      </nav>
+      <main className="max-w-6xl mx-auto p-4 sm:p-6 space-y-6">
+        {activeTab === 'new_entry' && <section className="space-y-6"><SectionHeader icon={Plus} title="新規案件登録" subtitle="New Entry" /><NewEntryForm salespersons={salespersons} onSubmit={handleEntrySubmit} selectedStaffId={entryStaffId} onStaffChange={setEntryStaffId} /><div className="space-y-4 pt-6"><h3 className="text-xl font-bold text-slate-800 flex items-center gap-2 px-2"><div className="w-2.5 h-6 bg-blue-400 rounded-full" />本日の登録内容</h3><OrderTable items={entryStaffOrders} onUpdate={updateOrderField} onDelete={deleteOrder} salespersons={salespersons} /></div></section>}
+        {activeTab === 'branch_total' && <section className="space-y-4">
+          <div className="flex justify-between items-start mb-2 print:hidden"><SectionHeader icon={PieChart} title={`${BRANCH_NAME} 合計・見込み`} subtitle="Branch Status" /><div className="flex items-center gap-2"><button onClick={handleExportPDF} disabled={isGeneratingPDF} className="bg-blue-600 text-white px-5 py-3 rounded-xl font-bold shadow-lg hover:bg-blue-700 flex items-center gap-3 disabled:opacity-50">{isGeneratingPDF ? <Loader2 size={20} className="animate-spin" /> : <FileDown size={20} />}印刷</button><button onClick={() => setShowBranchPreview(true)} className="bg-emerald-500 text-white px-4 py-2.5 rounded-xl font-bold text-sm shadow-md hover:bg-emerald-600 flex items-center gap-2"><Users size={18} />全体プレビュー</button></div></div>
+          <BranchSourceFilter currentFilter={branchTotalSourceFilter} onChange={setBranchTotalSourceFilter} prefix="branch" /><BranchSummaryCards summary={branchSummary} /><BacklogTotalCard totalAmt={branchSummary.rentalBacklogTotalAmt} />
+          <div className="flex bg-white p-2 rounded-xl border border-slate-200 shadow-sm gap-2 overflow-x-auto mt-8 mb-2 print:hidden"><button onClick={() => setBranchTotalStaffId('all')} className={`px-6 py-2 rounded-lg font-bold text-sm whitespace-nowrap ${branchTotalStaffId === 'all' ? 'bg-slate-700 text-white shadow' : 'text-slate-600 hover:bg-slate-50'}`}>全員表示</button>{salespersons.map((staff) => <button key={staff.id} onClick={() => setBranchTotalStaffId(staff.id)} className={`px-6 py-2 rounded-lg font-bold text-sm whitespace-nowrap ${branchTotalStaffId === staff.id ? 'bg-blue-500 text-white shadow' : 'text-slate-600 hover:bg-slate-50'}`}>{staff.name}</button>)}</div>
+          <Card noPadding className="border border-slate-200 shadow-lg rounded-2xl overflow-hidden"><div className="bg-blue-500 text-white px-5 py-3 font-bold text-base uppercase tracking-widest flex items-center gap-3"><TrendingUp size={18} />進捗ステータス詳細</div><ProgressTable data={branchTotalPersonDetailedSummary} staffIdFilter={branchTotalStaffId} /></Card>
+          {showBranchPreview && <PreviewModal onClose={() => setShowBranchPreview(false)} onExport={handleExportPDF} isGeneratingPDF={isGeneratingPDF} branchSummary={branchSummary} data={branchTotalPersonDetailedSummary} branchTotalSourceFilter={branchTotalSourceFilter} setBranchTotalSourceFilter={setBranchTotalSourceFilter} />}
+        </section>}
+        {activeTab === 'summary' && <section className="space-y-6"><div className="flex justify-between items-end"><SectionHeader icon={BarChart3} title={`${BRANCH_NAME} 目標進捗`} subtitle="Monthly Target" /><AlertNote /></div><RankingInsightsPanel insights={rankingInsights} /><div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">{personDetailedSummary.map((data) => <ProgressCard key={data.id} data={data} />)}</div></section>}
+        {activeTab === 'trend' && <section className="space-y-6"><div className="flex justify-between items-end"><SectionHeader icon={LineChart} title="今年年度（4月〜3月）の実績推移" subtitle="Fiscal Year Trend" /><AlertNote /></div><RankingInsightsPanel insights={rankingInsights} compact /><div className="flex bg-white p-2.5 rounded-2xl border border-slate-200 shadow-md gap-3 overflow-x-auto"><button onClick={() => setTrendStaffId('overall')} className={`px-8 py-3 rounded-xl font-bold text-lg whitespace-nowrap ${trendStaffId === 'overall' ? 'bg-slate-700 text-white shadow-lg' : 'text-slate-600 hover:bg-slate-50'}`}>{BRANCH_NAME} 全体</button>{salespersons.map((staff) => <button key={staff.id} onClick={() => setTrendStaffId(staff.id)} className={`px-8 py-3 rounded-xl font-bold text-lg whitespace-nowrap ${trendStaffId === staff.id ? 'bg-blue-500 text-white shadow-lg' : 'text-slate-600 hover:bg-slate-50'}`}>{staff.name}</button>)}</div><div className="grid grid-cols-1 md:grid-cols-2 gap-6"><StackedBarChart data={trendData.series.rentalNew} previousData={trendData.previousSeries.rentalNew} labels={trendData.months} currentMonth={currentMonth} title="レンタル新規 (件)" unit="件" yAxisMax={trendStaffId === 'overall' ? chartConfig.overall.rentalNew : chartConfig.personal.rentalNew} /><StackedBarChart data={trendData.series.bed} previousData={trendData.previousSeries.bed} labels={trendData.months} currentMonth={currentMonth} title="特価台数 (台)" unit="台" yAxisMax={trendStaffId === 'overall' ? chartConfig.overall.bed : chartConfig.personal.bed} /><StackedBarChart data={trendData.series.renovation} previousData={trendData.previousSeries.renovation} labels={trendData.months} currentMonth={currentMonth} title="住宅改修 (金額)" unit="円" isAmount yAxisMax={trendStaffId === 'overall' ? chartConfig.overall.renovation : chartConfig.personal.renovation} /><StackedBarChart data={trendData.series.equipment} previousData={trendData.previousSeries.equipment} labels={trendData.months} currentMonth={currentMonth} title="特定福祉用具販売 (金額)" unit="円" isAmount yAxisMax={trendStaffId === 'overall' ? chartConfig.overall.equipment : chartConfig.personal.equipment} /></div></section>}
+        {activeTab === 'list' && <section className="space-y-4"><ListToolbar currentYear={currentYear} currentMonthNum={currentMonthNum} currentMonth={currentMonth} setCurrentMonth={setCurrentMonth} /><div className="flex flex-col md:flex-row gap-4 items-center justify-between"><StaffFilter salespersons={salespersons} value={listStaffId} setValue={(v) => { setListStaffId(v); setSelectedCategoryFilter('すべて'); }} overallLabel={`${BRANCH_NAME} 全体`} /><button onClick={handleCarryOverChecked} className="w-full md:w-auto text-white bg-blue-500 px-6 py-2.5 rounded-xl font-bold text-sm flex items-center justify-center gap-2 shadow-md hover:bg-blue-600"><RotateCcw size={18} />次月へ移行</button></div><BranchSourceFilter currentFilter={listSourceFilter} onChange={setListSourceFilter} prefix="list" /><CategoryFilter items={listOrders} selected={selectedCategoryFilter} onSelect={setSelectedCategoryFilter} /><OrderTable items={listOrders} onUpdate={updateOrderField} onDelete={deleteOrder} salespersons={salespersons} showStaffName={listStaffId === 'all'} selectedCategory={selectedCategoryFilter} onAddCategory={handleAddListRow} /></section>}
+        {activeTab === 'compliance' && <Usage />}
+        {activeTab === 'master' && <section className="space-y-6"><SectionHeader icon={Settings} title={`${BRANCH_NAME} マスタ設定`} subtitle="Master Settings" /><div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">{salespersons.filter((s) => s?.id).map((s, idx) => <StaffMemberItem key={s.id} staff={s} isFirst={idx === 0} isLast={idx === salespersons.length - 1} onMove={handleMoveStaff} onUpdate={updateStaffField} onDelete={async (id) => { await deleteDoc(doc(db, ...basePath, 'staff', String(id))); showMessage('スタッフを削除しました'); }} />)}<AddStaffCard value={newStaffName} setValue={setNewStaffName} onAdd={async () => { if (!newStaffName) return; const newId = Date.now(); await setDoc(doc(db, ...basePath, 'staff', String(newId)), { id: newId, name: newStaffName, budgetRenovation: 0, targetRenovationCnt: 0, budgetEquipment: 0, targetEquipmentCnt: 0, targetRentalNew: 0, targetBedNew: 0, orderIndex: salespersons.length }); setNewStaffName(''); showMessage('追加しました'); }} /></div><ChartConfigCard chartConfig={chartConfig} onSave={handleUpdateChartConfig} /><DataPortabilityCard onExport={handleExportData} onImportClick={() => importFileRef.current?.click()} importRef={importFileRef} onImport={handleImportData} loginHistory={loginHistory} /></section>}
+      </main>
+      <div className="fixed bottom-4 right-6 text-[10px] text-slate-500 font-bold opacity-60 pointer-events-none z-50 print:hidden">太陽シルバーサービス㈱ {BRANCH_NAME}</div>
+    </div>
+  );
+};
+
+const AlertNote = () => <div className="hidden sm:flex items-center gap-2 mb-4 bg-orange-50 px-4 py-2 rounded-lg border border-orange-100"><AlertCircle size={16} className="text-orange-500" /><span className="text-xs font-bold text-orange-600">※実績値はステータスが「確定済」または「売上済」になった案件のみ反映されます。</span></div>;
+
+const StaffFilter = ({ salespersons, value, setValue, overallLabel }) => <div className="flex bg-white p-2 rounded-xl border border-slate-100 shadow-sm gap-2 overflow-x-auto w-full md:w-auto"><button onClick={() => setValue('all')} className={`px-6 py-2 rounded-lg font-bold text-sm whitespace-nowrap ${value === 'all' ? 'bg-slate-700 text-white shadow' : 'text-slate-700 hover:bg-slate-50'}`}>{overallLabel}</button>{salespersons.map((staff) => <button key={staff.id} onClick={() => setValue(staff.id)} className={`px-6 py-2 rounded-lg font-bold text-sm whitespace-nowrap ${value === staff.id ? 'bg-blue-500 text-white shadow' : 'text-slate-600 hover:bg-slate-50'}`}>{staff.name}</button>)}</div>;
+
+const CategoryFilter = ({ items, selected, onSelect }) => <div className="flex flex-wrap gap-2 bg-slate-50 p-2 rounded-xl items-center shadow-inner"><span className="text-xs font-bold text-slate-700 whitespace-nowrap bg-white px-2 py-1 rounded shadow-sm border border-slate-200">カテゴリ</span><button onClick={() => onSelect('すべて')} className={`text-xs font-bold px-4 py-1.5 rounded-lg shadow-sm ${selected === 'すべて' ? 'bg-blue-500 text-white' : 'bg-white text-slate-700 border border-slate-200'}`}>すべて表示</button>{allCategories.map((cat) => items.some((o) => o.category === cat) ? <button key={cat} onClick={() => onSelect(cat)} className={`text-xs font-bold px-4 py-1.5 rounded-lg shadow-sm ${selected === cat ? 'bg-blue-500 text-white' : 'bg-white text-slate-700 border border-slate-200'}`}>{cat === '特定福祉用具販売' ? '特定福祉用具' : cat}</button> : null)}</div>;
+
+const ListToolbar = ({ currentYear, currentMonthNum, currentMonth, setCurrentMonth }) => <div className="flex items-center justify-between bg-white p-3 rounded-xl border border-slate-100 shadow-sm"><div className="flex items-center gap-4"><div className="bg-blue-500 text-white px-4 py-1.5 rounded-lg font-bold text-sm shadow-sm">表示中</div><h2 className="text-xl font-bold text-slate-800">{currentYear}年{currentMonthNum}月 <span className="text-slate-600 font-bold ml-1 text-sm">の受注残</span></h2></div><div className="flex items-center gap-2"><button onClick={() => setCurrentMonth(getOffsetMonth(currentMonth, -1))} className="p-2 hover:bg-slate-50 rounded-lg text-slate-600 flex items-center gap-1 font-bold text-sm"><RotateCcw size={16} className="-scale-x-100" />前月</button><button onClick={() => { const now = new Date(); setCurrentMonth(`${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`); }} className="px-3 py-2 bg-slate-50 hover:bg-slate-100 rounded-lg text-slate-700 font-bold text-xs">今月</button><button onClick={() => setCurrentMonth(getOffsetMonth(currentMonth, 1))} className="p-2 hover:bg-slate-50 rounded-lg text-slate-600 flex items-center gap-1 font-bold text-sm">次月 <RotateCcw size={16} className="rotate-180" /></button></div></div>;
+
+const RankingInsightsPanel = ({ insights, compact = false }) => (
+  <details className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden print:hidden">
+    <summary className="cursor-pointer list-none px-5 py-4 flex items-center justify-between gap-4 hover:bg-slate-50">
+      <div className="flex items-center gap-3 min-w-0">
+        <div className="w-9 h-9 rounded-xl bg-blue-50 text-blue-500 flex items-center justify-center shrink-0"><TrendingUp size={18} /></div>
+        <div className="min-w-0">
+          <div className="text-base font-bold text-slate-800 truncate">年間ランキングを見る</div>
+          <div className="text-xs font-bold text-slate-500 truncate">事業所別・依頼元別・商品区分別の傾向を確認できます</div>
+        </div>
+      </div>
+      <span className="text-xs font-extrabold text-blue-600 bg-blue-50 px-3 py-1.5 rounded-lg whitespace-nowrap">開く</span>
+    </summary>
+    <div className={`border-t border-slate-100 p-4 grid gap-4 ${compact ? 'grid-cols-1 lg:grid-cols-3' : 'grid-cols-1 md:grid-cols-2 xl:grid-cols-3'}`}>
+      {insights.map((group) => (
+        <div key={group.title} className="border border-slate-100 rounded-xl overflow-hidden bg-slate-50/50">
+          <div className="px-4 py-3 bg-white border-b border-slate-100 font-bold text-slate-800 text-sm">{group.title}</div>
+          <div className="divide-y divide-slate-100">
+            {group.rows.map((row, index) => (
+              <div key={`${group.title}-${row.label}-${index}`} className="px-4 py-2.5 flex items-center justify-between gap-3">
+                <div className="min-w-0 flex items-center gap-2">
+                  <span className="w-6 h-6 rounded-lg bg-white border border-slate-200 text-slate-700 flex items-center justify-center text-xs font-extrabold shrink-0">{index + 1}</span>
+                  <span className="font-bold text-slate-800 text-sm truncate">{row.label}</span>
+                </div>
+                <div className="text-right shrink-0">
+                  <div className="font-extrabold text-blue-600 text-sm whitespace-nowrap">{group.mode === 'amount' ? `${yenK(row.amount)}千円` : `${row.count}件`}</div>
+                  {group.mode === 'amount' && <div className="text-[10px] font-bold text-slate-500 whitespace-nowrap">{row.count}件</div>}
+                </div>
+              </div>
+            ))}
+            {!group.rows.length && <div className="px-4 py-6 text-center text-xs font-bold text-slate-500">表示できるデータはまだありません</div>}
+          </div>
+        </div>
+      ))}
+    </div>
+  </details>
+);
+
+const ProgressCard = ({ data }) => {
+  const rows = [
+    { label: 'レンタル新規 (件)', current: data.current.rentalNew.doneCnt, target: data.targetRentalNew, unit: '件' },
+    { label: '特価ベッド (台)', current: data.current.bed.doneCnt, target: data.targetBedNew, unit: '台' },
+    { label: '住宅改修 (予算)', current: data.current.renovation.doneAmt, target: data.budgetRenovation, unit: '円', isAmount: true },
+    { label: '特定福祉用具 (予算)', current: data.current.equipment.doneAmt, target: data.budgetEquipment, unit: '円', isAmount: true }
+  ];
+  return <Card className="p-4 space-y-4 shadow-md border-slate-200"><div className="flex justify-between items-center border-b border-slate-100 pb-2"><span className="text-xl font-bold text-slate-800">{data.name}</span><span className="text-[10px] font-bold text-slate-700 uppercase tracking-widest bg-slate-50 px-3 py-1 rounded-full">進捗</span></div>{rows.map((row) => <div key={row.label} className="space-y-1.5"><div className="flex justify-between items-end leading-none"><div className="text-xs font-bold text-slate-600">{row.label}</div><div className="text-lg font-bold text-slate-800 shrink-0">{row.isAmount ? `¥${row.current.toLocaleString()}` : `${row.current}${row.unit}`}<span className="text-xs text-slate-600 font-normal ml-2">/ {row.isAmount ? `¥${Number(row.target || 0).toLocaleString()}` : `${Number(row.target || 0)}${row.unit}`}</span></div></div><div className="h-2.5 bg-slate-100 rounded-full overflow-hidden shadow-inner border border-slate-200/50"><div className="bg-blue-400 h-full transition-all duration-1000 shadow-sm" style={{ width: `${Math.min(100, (row.current / (row.target || 1)) * 100)}%` }} /></div></div>)}</Card>;
+};
+
+const AddStaffCard = ({ value, setValue, onAdd }) => <div className="bg-white rounded-[1.5rem] p-8 border-4 border-dashed border-slate-200 flex flex-col gap-6 justify-center items-center min-h-[300px] shadow-inner text-center"><input value={value} onChange={(e) => setValue(e.target.value)} placeholder="新所員名を入力" className="bg-slate-50 border border-slate-200 rounded-xl px-6 py-4 font-bold text-xl outline-none w-full text-center" {...JAPANESE_TEXT_INPUT_PROPS} /><button onClick={onAdd} className="w-full bg-blue-500 text-white py-4 rounded-xl font-bold text-lg hover:bg-blue-400 shadow-xl transition-all">スタッフ追加</button></div>;
+
+const ChartConfigCard = ({ chartConfig, onSave }) => <Card className="p-6 border-slate-200 shadow-md"><h3 className="text-lg font-bold flex items-center gap-2 mb-6 text-slate-800 border-l-4 border-blue-500 pl-3"><LineChart size={20} className="text-blue-500" />推移グラフ表示上限設定</h3><div className="grid grid-cols-1 md:grid-cols-2 gap-8">{[['overall', '全体表示時の上限'], ['personal', '個人表示時の上限']].map(([group, title]) => <div key={group} className="space-y-4"><h4 className="text-sm font-extrabold text-slate-700 uppercase tracking-widest bg-slate-100 px-3 py-1 rounded">{title}</h4><div className="grid grid-cols-2 gap-4">{CHART_CONFIG_FIELDS.map((f) => <div key={`${group}-${f.field}`} className="space-y-1"><label className="text-[10px] font-extrabold text-slate-600">{f.label}</label><AutoSaveInput type="number" value={chartConfig[group]?.[f.field]} saveId={group} saveField={f.field} onSave={onSave} className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 font-bold text-sm outline-none focus:bg-white focus:border-blue-300 shadow-inner" /></div>)}</div></div>)}</div></Card>;
+
+const DataPortabilityCard = ({ onExport, onImportClick, importRef, onImport, loginHistory = [] }) => (
+  <Card className="p-5 border-slate-200 shadow-sm bg-slate-50/60 print:hidden">
+    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      <div>
+        <h3 className="text-sm font-extrabold text-slate-700 uppercase tracking-widest">データ入出力</h3>
+        <p className="text-xs font-bold text-slate-500 mt-1">移行・バックアップ用です。通常操作では使用しません。</p>
+      </div>
+      <div className="flex gap-2">
+        <button type="button" onClick={onExport} className="px-4 py-2 rounded-lg bg-white border border-slate-200 text-slate-700 text-xs font-bold hover:border-blue-300 hover:text-blue-600">データ出力</button>
+        <button type="button" onClick={onImportClick} className="px-4 py-2 rounded-lg bg-white border border-slate-200 text-slate-700 text-xs font-bold hover:border-blue-300 hover:text-blue-600">データ読み込み</button>
+        <input ref={importRef} type="file" accept="application/json,.json" onChange={onImport} className="hidden" />
+      </div>
+    </div>
+    <details className="mt-4 border-t border-slate-200 pt-4">
+      <summary className="cursor-pointer text-xs font-extrabold text-slate-600 tracking-widest uppercase">ログイン履歴</summary>
+      <div className="mt-3 overflow-x-auto">
+        <table className="w-full min-w-[640px] text-xs">
+          <thead className="text-slate-500">
+            <tr><th className="text-left py-2">日時</th><th className="text-left py-2">営業所</th><th className="text-left py-2">端末</th></tr>
+          </thead>
+          <tbody className="divide-y divide-slate-200/70">
+            {loginHistory.map((item) => <tr key={item.id}><td className="py-2 font-bold text-slate-700">{item.loginAt ? new Date(item.loginAt).toLocaleString('ja-JP') : '-'}</td><td className="py-2 font-bold text-slate-700">{item.branchName || '-'}</td><td className="py-2 font-bold text-slate-500">{item.deviceName || 'unknown'}</td></tr>)}
+            {!loginHistory.length && <tr><td colSpan="3" className="py-4 text-center font-bold text-slate-500">履歴はまだありません</td></tr>}
+          </tbody>
+        </table>
+      </div>
+    </details>
+  </Card>
+);
+
+const PreviewModal = ({ onClose, onExport, isGeneratingPDF, branchSummary, data, branchTotalSourceFilter, setBranchTotalSourceFilter }) => <div className="fixed inset-0 z-[100] bg-slate-900/80 backdrop-blur-sm p-4 sm:p-8 overflow-y-auto flex items-start justify-center modal-overlay"><div className="bg-white w-full max-w-[1400px] rounded-2xl shadow-2xl overflow-hidden my-4 sm:my-8 modal-content"><div className="flex justify-between items-center p-4 sm:p-6 border-b border-slate-200 bg-slate-50 sticky top-0 z-10 print:hidden"><h2 className="text-2xl font-bold text-slate-800 flex items-center gap-2"><PieChart className="text-blue-500" />営業所合計 プレビュー</h2><div className="flex items-center gap-2"><button onClick={onExport} className="bg-blue-600 text-white px-6 py-2 rounded-xl font-bold shadow-sm flex items-center gap-2">{isGeneratingPDF ? <Loader2 size={18} className="animate-spin" /> : <FileDown size={18} />}印刷</button><button onClick={onClose} className="bg-slate-200 hover:bg-slate-300 text-slate-700 px-6 py-2 rounded-xl font-bold shadow-sm">閉じる</button></div></div><div className="p-4 sm:p-6 space-y-6"><BranchSourceFilter currentFilter={branchTotalSourceFilter} onChange={setBranchTotalSourceFilter} prefix="preview" /><BranchSummaryCards summary={branchSummary} /><BacklogTotalCard totalAmt={branchSummary.rentalBacklogTotalAmt} /><Card noPadding className="border border-slate-200 shadow-xl rounded-2xl overflow-hidden"><div className="bg-blue-500 text-white px-5 py-3 font-bold text-base uppercase tracking-widest flex items-center gap-3"><TrendingUp size={18} />進捗ステータス詳細（全所員一覧）</div><ProgressTable data={data} staffIdFilter="all" /></Card></div></div></div>;
+
+const Usage = () => <section className="space-y-6"><SectionHeader icon={Info} title="アプリの使い方・活用術" subtitle="How to use & Tips" /><Card className="p-6 sm:p-10 space-y-10 shadow-md border-slate-200 text-slate-800"><div className="bg-blue-50 border border-blue-100 rounded-xl p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4"><div><h3 className="text-lg font-bold text-slate-800 mb-1">印刷用の説明書</h3><p className="text-sm font-bold text-slate-600 leading-relaxed">配布先の方は localhost ではなく、公開URLの説明書を開いてください。</p></div><a href="https://solar-silver-progress-app.netlify.app/manual.html" target="_blank" rel="noreferrer" className="shrink-0 bg-blue-600 text-white px-5 py-3 rounded-xl font-bold text-sm shadow-md hover:bg-blue-700 text-center">説明書を開く</a></div><div><h3 className="text-lg font-bold border-l-4 border-slate-800 pl-3 mb-4">最初にやるべきこと</h3><p className="text-sm pl-6 font-bold leading-relaxed text-slate-700">「マスタ設定」タブを開き、各スタッフの名前を追加した上で、今月の「予算」や「目標数値」を入力してください。<br />これにより、目標進捗や営業所合計のグラフが正しく描画されるようになります。</p></div><div className="border-b border-slate-100 pb-6"><h3 className="text-xl font-bold flex items-center gap-2 mb-4">正確な数値管理のために</h3><p className="font-bold leading-relaxed text-sm sm:text-base text-slate-800">正確な数値を算出するには、日々の受注案件を確実に入力することが重要です。入力を徹底することで、営業所全体の着地予測や個人の目標達成度が正しく可視化されます。</p></div><div className="space-y-6"><h3 className="text-lg font-bold border-l-4 border-slate-800 pl-3">各機能の役割と使い方</h3>{[[Plus, '登録', '新規案件や追加案件を入力します。別商品交換の場合は納品と回収の差額の金額を入力してください。'], [List, '受注残一覧', '登録案件の状態を管理します。担当者やカテゴリごとに案件を絞り込めます。'], [PieChart, '営業所合計', '営業所全体の今月の実績と見込みを自動集計します。'], [BarChart3, '目標進捗', 'マスタで設定した個人目標に対する現在の達成状況を確認できます。'], [LineChart, '推移グラフ', '4月始まりの今年度の月別実績推移を表示します。']].map(([Icon, title, text]) => <div key={title} className="space-y-2"><p className="font-bold flex items-center gap-2 text-slate-800"><Icon size={18} className="text-slate-700" />{title}</p><p className="text-sm pl-6 leading-relaxed font-bold text-slate-700">{text}</p></div>)}</div></Card></section>;
+
+const createEmptySummary = () => ({
+  rentalNew: { doneCnt: 0, doneAmt: 0, forecastCnt: 0, forecastAmt: 0, sourceCount: { 包括: 0, 居宅: 0, '退院/連携室': 0 } },
+  bed: { doneCnt: 0, doneAmt: 0, forecastCnt: 0, forecastAmt: 0, sourceCount: { 包括: 0, 居宅: 0, '退院/連携室': 0 } },
+  renovation: { doneCnt: 0, doneAmt: 0, forecastCnt: 0, forecastAmt: 0, sourceCount: { 包括: 0, 居宅: 0, '退院/連携室': 0 } },
+  equipment: { doneCnt: 0, doneAmt: 0, forecastCnt: 0, forecastAmt: 0, sourceCount: { 包括: 0, 居宅: 0, '退院/連携室': 0 } },
+  otherSales: { doneCnt: 0, doneAmt: 0, forecastCnt: 0, forecastAmt: 0, sourceCount: { 包括: 0, 居宅: 0, '退院/連携室': 0 } },
+  rentalBacklogTotalAmt: 0
+});
+
+const addOrderToSummary = (summary, order) => {
+  const key = CATEGORY_TO_KEY[order.category];
+  const target = key ? summary[key] : null;
+  const amount = Number(order.amount || 0);
+  const done = isCompletedStatus(order.status);
+  if (target) {
+    target.forecastCnt += 1;
+    target.forecastAmt += amount;
+    if (order.source && target.sourceCount?.[order.source] !== undefined) target.sourceCount[order.source] += 1;
+    if (done) {
+      target.doneCnt += 1;
+      target.doneAmt += amount;
+    }
+  }
+  if (!done && RENTAL_CATEGORIES.includes(order.category)) summary.rentalBacklogTotalAmt += amount;
+};
+
+const HeadOfficeMetric = ({ label, value, sub }) => (
+  <Card className="p-5 shadow-md">
+    <div className="text-xs font-extrabold text-slate-500 tracking-widest uppercase mb-2">{label}</div>
+    <div className="text-3xl font-bold text-slate-900 leading-none">{value}</div>
+    {sub && <div className="text-xs font-bold text-slate-500 mt-2">{sub}</div>}
+  </Card>
+);
+
+const HeadOfficeRankingList = ({ title, rows, valueLabel, valueFormat }) => (
+  <div className="bg-white border border-slate-100 rounded-xl overflow-hidden">
+    <div className="px-4 py-3 bg-slate-50 border-b border-slate-100 font-bold text-slate-800">{title}</div>
+    <div className="divide-y divide-slate-100">
+      {rows.map((row, index) => (
+        <div key={`${title}-${row.branchName}-${row.staffName}-${index}`} className="px-4 py-3 flex items-center justify-between gap-3">
+          <div className="min-w-0">
+            <div className="font-bold text-slate-900 truncate">{index + 1}. {row.staffName}</div>
+            <div className="text-[11px] font-bold text-slate-500 truncate">{row.branchName}</div>
+          </div>
+          <div className="text-right shrink-0">
+            <div className="text-lg font-bold text-blue-600">{valueFormat(row)}</div>
+            <div className="text-[11px] font-bold text-slate-500">{valueLabel}</div>
+          </div>
+        </div>
+      ))}
+      {!rows.length && <div className="px-4 py-8 text-center font-bold text-slate-500">表示できるデータはまだありません</div>}
+    </div>
+  </div>
+);
+
+const HeadOfficeApp = () => {
+  const [user, setUser] = useState(null);
+  const [authInitialized, setAuthInitialized] = useState(false);
+  const [branches, setBranches] = useState([]);
+  const [branchData, setBranchData] = useState({});
+  const [currentMonth, setCurrentMonth] = useState(() => {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  });
+  const [selectedBranch, setSelectedBranch] = useState('all');
+  const [showRankings, setShowRankings] = useState(false);
+
+  useEffect(() => {
+    const initAuth = async () => {
+      try {
+        let signedIn = false;
+        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+          try {
+            await signInWithCustomToken(auth, __initial_auth_token);
+            signedIn = true;
+          } catch {}
+        }
+        if (!signedIn) await signInAnonymously(auth);
+      } finally {
+        setAuthInitialized(true);
+      }
+    };
+    initAuth();
+    return onAuthStateChanged(auth, setUser);
+  }, []);
+
+  useEffect(() => {
+    if (!authInitialized || !user) return;
+    return onSnapshot(collection(db, 'artifacts', HEAD_OFFICE_DIRECTORY_APP_ID, 'public', 'data', 'branches'), (snap) => {
+      setBranches(mergeHeadOfficeBranches(snap.docs.map((d) => ({ ...d.data(), id: d.id }))));
+    });
+  }, [authInitialized, user]);
+
+  useEffect(() => {
+    if (!branches.length) {
+      setBranchData({});
+      return;
+    }
+    const unsubscribers = [];
+    branches.forEach((branch) => {
+      const appId = branch.appId;
+      const base = ['artifacts', appId, 'public', 'data'];
+      unsubscribers.push(onSnapshot(collection(db, ...base, 'orders'), (snap) => {
+        setBranchData((prev) => ({ ...prev, [appId]: { ...(prev[appId] || {}), branch, orders: snap.docs.map((d) => ({ ...d.data(), id: d.id })) } }));
+      }));
+      unsubscribers.push(onSnapshot(collection(db, ...base, 'staff'), (snap) => {
+        setBranchData((prev) => ({ ...prev, [appId]: { ...(prev[appId] || {}), branch, staff: snap.docs.map((d) => ({ ...d.data(), id: Number(d.id) })).sort((a, b) => (a.orderIndex ?? 0) - (b.orderIndex ?? 0)) } }));
+      }));
+    });
+    return () => unsubscribers.forEach((unsubscribe) => unsubscribe());
+  }, [branches]);
+
+  const branchAppIdSet = useMemo(() => new Set(branches.map((branch) => branch.appId)), [branches]);
+  const visibleBranchData = useMemo(() => Object.values(branchData).filter((item) => item?.branch && branchAppIdSet.has(item.branch.appId) && (selectedBranch === 'all' || item.branch.appId === selectedBranch)), [branchAppIdSet, branchData, selectedBranch]);
+  const currentOrders = useMemo(() => visibleBranchData.flatMap((item) => (item.orders || []).filter((order) => order.targetMonth === currentMonth).map((order) => ({ ...order, branchName: item.branch.branchName, appId: item.branch.appId }))), [currentMonth, visibleBranchData]);
+  const allSummary = useMemo(() => {
+    const summary = createEmptySummary();
+    currentOrders.forEach((order) => addOrderToSummary(summary, order));
+    return summary;
+  }, [currentOrders]);
+  const branchRows = useMemo(() => visibleBranchData.map((item) => {
+    const orders = (item.orders || []).filter((order) => order.targetMonth === currentMonth);
+    const summary = createEmptySummary();
+    orders.forEach((order) => addOrderToSummary(summary, order));
+    return { ...item.branch, summary, orderCount: orders.length };
+  }).sort((a, b) => b.summary.rentalBacklogTotalAmt - a.summary.rentalBacklogTotalAmt), [currentMonth, visibleBranchData]);
+  const staffRows = useMemo(() => {
+    const rows = [];
+    visibleBranchData.forEach((item) => {
+      const staff = item.staff || [];
+      const orders = (item.orders || []).filter((order) => order.targetMonth === currentMonth);
+      staff.forEach((person) => {
+        const summary = createEmptySummary();
+        orders.filter((order) => Number(order.salespersonId) === Number(person.id)).forEach((order) => addOrderToSummary(summary, order));
+        rows.push({ branchName: item.branch.branchName, staffName: person.name, summary });
+      });
+    });
+    return rows.sort((a, b) => b.summary.rentalNew.forecastCnt - a.summary.rentalNew.forecastCnt || b.summary.rentalBacklogTotalAmt - a.summary.rentalBacklogTotalAmt);
+  }, [currentMonth, visibleBranchData]);
+  const selectedBranchRow = useMemo(() => selectedBranch === 'all' ? null : branchRows.find((row) => row.appId === selectedBranch), [branchRows, selectedBranch]);
+  const rankingRows = useMemo(() => {
+    const activeRows = staffRows.filter((row) => row.summary.rentalNew.forecastCnt || row.summary.renovation.forecastAmt || row.summary.equipment.forecastAmt);
+    return {
+      rentalNew: [...activeRows].sort((a, b) => b.summary.rentalNew.forecastCnt - a.summary.rentalNew.forecastCnt || b.summary.rentalBacklogTotalAmt - a.summary.rentalBacklogTotalAmt).slice(0, 10),
+      renovation: [...activeRows].sort((a, b) => b.summary.renovation.forecastAmt - a.summary.renovation.forecastAmt || b.summary.renovation.forecastCnt - a.summary.renovation.forecastCnt).slice(0, 10),
+      equipment: [...activeRows].sort((a, b) => b.summary.equipment.forecastAmt - a.summary.equipment.forecastAmt || b.summary.equipment.forecastCnt - a.summary.equipment.forecastCnt).slice(0, 10)
+    };
+  }, [staffRows]);
+  const totalSalesForecast = allSummary.renovation.forecastAmt + allSummary.equipment.forecastAmt + allSummary.otherSales.forecastAmt;
+  const handleReset = useCallback(() => {
+    localStorage.removeItem('solar_silver_branch_setting');
+    window.location.reload();
+  }, []);
+
+  if (!authInitialized || !user) return <LoadingScreen />;
+
+  return (
+    <div className="min-h-screen bg-slate-50 text-slate-800 font-sans pb-12">
+      <header className="bg-white border-b border-slate-100 sticky top-0 z-50 shadow-sm">
+        <div className="max-w-7xl mx-auto px-5 h-20 flex items-center justify-between">
+          <div className="flex items-center gap-4"><ShieldCheck size={32} className="text-slate-700 hidden sm:block" /><div><h1 className="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight">本社 集計ダッシュボード</h1><p className="text-xs font-bold text-slate-500">全営業所状況</p></div></div>
+          <div className="flex items-center gap-3">
+            <select value={selectedBranch} onChange={(e) => setSelectedBranch(e.target.value)} className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 font-bold text-sm outline-none">
+              <option value="all">全営業所</option>
+              {branches.map((branch) => <option key={branch.appId} value={branch.appId}>{branch.branchName}</option>)}
+            </select>
+            <div className="flex items-center gap-2 bg-slate-50 px-3 py-2 rounded-xl shadow-inner border border-slate-200"><Calendar size={18} className="text-slate-500 hidden sm:block" /><input type="month" value={currentMonth} onChange={(e) => setCurrentMonth(e.target.value)} className="bg-transparent border-none text-sm font-bold text-slate-800 outline-none cursor-pointer" /></div>
+            <button onClick={handleReset} className="text-xs font-bold text-slate-600 bg-slate-50 hover:bg-slate-100 border border-slate-200 px-3 py-2 rounded-xl">切替</button>
+          </div>
+        </div>
+      </header>
+      <main className="max-w-7xl mx-auto p-4 sm:p-6 space-y-6">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+          <HeadOfficeMetric label="登録営業所" value={`${branches.length}拠点`} />
+          <HeadOfficeMetric label="レンタル新規 見込み" value={`${allSummary.rentalNew.forecastCnt}件`} sub={`実績 ${allSummary.rentalNew.doneCnt}件`} />
+          <HeadOfficeMetric label="特価ベッド 見込み" value={`${allSummary.bed.forecastCnt}台`} sub={`実績 ${allSummary.bed.doneCnt}台`} />
+          <HeadOfficeMetric label="販売見込み" value={`¥${yenK(totalSalesForecast)}千円`} sub="住改・特定福祉用具・その他" />
+          <HeadOfficeMetric label="受注残合計" value={`¥${yenK(allSummary.rentalBacklogTotalAmt)}千円`} />
+        </div>
+
+        {selectedBranchRow && (
+          <Card className="p-5 shadow-md border-blue-100 bg-white">
+            <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-3 mb-5">
+              <div>
+                <div className="text-xs font-extrabold text-blue-600 tracking-widest uppercase mb-1">Selected Branch</div>
+                <h2 className="text-2xl font-bold text-slate-900 leading-none">{selectedBranchRow.branchName}</h2>
+              </div>
+              <div className="text-sm font-bold text-slate-500">{formatMonth(currentMonth)}度 / 登録案件 {selectedBranchRow.orderCount}件</div>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3">
+              <div className="bg-slate-50 border border-slate-100 rounded-xl p-4"><div className="text-[11px] font-bold text-slate-500 mb-1">受注残</div><div className="text-xl font-bold text-slate-900">¥{yenK(selectedBranchRow.summary.rentalBacklogTotalAmt)}千円</div></div>
+              <div className="bg-blue-50 border border-blue-100 rounded-xl p-4"><div className="text-[11px] font-bold text-blue-600 mb-1">レンタル新規</div><div className="text-xl font-bold text-blue-700">{selectedBranchRow.summary.rentalNew.doneCnt}/{selectedBranchRow.summary.rentalNew.forecastCnt}件</div></div>
+              <div className="bg-rose-50 border border-rose-100 rounded-xl p-4"><div className="text-[11px] font-bold text-rose-600 mb-1">特価ベッド</div><div className="text-xl font-bold text-rose-700">{selectedBranchRow.summary.bed.doneCnt}/{selectedBranchRow.summary.bed.forecastCnt}台</div></div>
+              <div className="bg-slate-50 border border-slate-100 rounded-xl p-4"><div className="text-[11px] font-bold text-slate-500 mb-1">住宅改修</div><div className="text-base font-bold text-slate-900">{selectedBranchRow.summary.renovation.doneCnt}/{selectedBranchRow.summary.renovation.forecastCnt}件</div><div className="text-sm font-bold text-blue-600">¥{yenK(selectedBranchRow.summary.renovation.forecastAmt)}千円</div></div>
+              <div className="bg-slate-50 border border-slate-100 rounded-xl p-4"><div className="text-[11px] font-bold text-slate-500 mb-1">特定福祉用具</div><div className="text-base font-bold text-slate-900">{selectedBranchRow.summary.equipment.doneCnt}/{selectedBranchRow.summary.equipment.forecastCnt}件</div><div className="text-sm font-bold text-blue-600">¥{yenK(selectedBranchRow.summary.equipment.forecastAmt)}千円</div></div>
+              <div className="bg-slate-50 border border-slate-100 rounded-xl p-4"><div className="text-[11px] font-bold text-slate-500 mb-1">その他</div><div className="text-xl font-bold text-slate-900">¥{yenK(selectedBranchRow.summary.otherSales.forecastAmt)}千円</div></div>
+            </div>
+          </Card>
+        )}
+
+        <Card className="p-4 shadow-md print:hidden">
+          <button type="button" onClick={() => setShowRankings((open) => !open)} className="w-full flex items-center justify-between gap-3 text-left">
+            <div>
+              <div className="text-xs font-extrabold text-slate-500 tracking-widest uppercase mb-1">Ranking</div>
+              <div className="text-lg font-bold text-slate-900">上位ランキング</div>
+            </div>
+            <div className={`px-4 py-2 rounded-xl font-bold text-sm ${showRankings ? 'bg-slate-800 text-white' : 'bg-slate-100 text-slate-700'}`}>{showRankings ? '閉じる' : '開く'}</div>
+          </button>
+          {showRankings && (
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mt-4">
+              <HeadOfficeRankingList title="新規件数 上位" rows={rankingRows.rentalNew} valueLabel="レンタル新規" valueFormat={(row) => `${row.summary.rentalNew.forecastCnt}件`} />
+              <HeadOfficeRankingList title="住宅改修売上 上位" rows={rankingRows.renovation} valueLabel="見込み売上" valueFormat={(row) => `¥${yenK(row.summary.renovation.forecastAmt)}千円`} />
+              <HeadOfficeRankingList title="特定福祉用具売上 上位" rows={rankingRows.equipment} valueLabel="見込み売上" valueFormat={(row) => `¥${yenK(row.summary.equipment.forecastAmt)}千円`} />
+            </div>
+          )}
+        </Card>
+
+        <Card noPadding className="shadow-lg rounded-2xl">
+          <div className="bg-slate-800 text-white px-5 py-3 font-bold text-sm uppercase tracking-widest flex items-center gap-3"><PieChart size={18} />営業所別状況</div>
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[1050px] table-fixed text-sm">
+              <thead className="bg-slate-50 text-slate-700">
+                <tr>
+                  <th className="px-4 py-3 text-left w-[160px]">営業所</th>
+                  <th className="px-4 py-3 text-center">受注残</th>
+                  <th className="px-4 py-3 text-center">レンタル新規</th>
+                  <th className="px-4 py-3 text-center">特価ベッド</th>
+                  <th className="px-4 py-3 text-center">住宅改修</th>
+                  <th className="px-4 py-3 text-center">特定福祉用具</th>
+                  <th className="px-4 py-3 text-center">その他</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {branchRows.map((row) => <tr key={row.appId} className="hover:bg-blue-50/20"><td className="px-4 py-3 font-bold text-slate-900">{row.branchName}</td><td className="px-4 py-3 text-center font-bold">¥{yenK(row.summary.rentalBacklogTotalAmt)}千円</td><td className="px-4 py-3 text-center font-bold">{row.summary.rentalNew.doneCnt}/{row.summary.rentalNew.forecastCnt}件</td><td className="px-4 py-3 text-center font-bold">{row.summary.bed.doneCnt}/{row.summary.bed.forecastCnt}台</td><td className="px-4 py-3 text-center font-bold">{row.summary.renovation.doneCnt}/{row.summary.renovation.forecastCnt}件<br /><span className="text-blue-600">¥{yenK(row.summary.renovation.forecastAmt)}千円</span></td><td className="px-4 py-3 text-center font-bold">{row.summary.equipment.doneCnt}/{row.summary.equipment.forecastCnt}件<br /><span className="text-blue-600">¥{yenK(row.summary.equipment.forecastAmt)}千円</span></td><td className="px-4 py-3 text-center font-bold">¥{yenK(row.summary.otherSales.forecastAmt)}千円</td></tr>)}
+                {!branchRows.length && <tr><td colSpan="7" className="px-4 py-8 text-center font-bold text-slate-500">営業所データはまだ登録されていません</td></tr>}
+              </tbody>
+            </table>
+          </div>
+        </Card>
+
+        <Card noPadding className="shadow-lg rounded-2xl">
+          <div className="bg-blue-600 text-white px-5 py-3 font-bold text-sm uppercase tracking-widest flex items-center gap-3"><Users size={18} />個人別状況</div>
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[1100px] table-fixed text-sm">
+              <thead className="bg-slate-50 text-slate-700">
+                <tr>
+                  <th className="px-4 py-3 text-left w-[150px]">営業所</th>
+                  <th className="px-4 py-3 text-left w-[120px]">担当</th>
+                  <th className="px-4 py-3 text-center">受注残</th>
+                  <th className="px-4 py-3 text-center">レンタル新規</th>
+                  <th className="px-4 py-3 text-center">特価ベッド</th>
+                  <th className="px-4 py-3 text-center">住宅改修</th>
+                  <th className="px-4 py-3 text-center">特定福祉用具</th>
+                  <th className="px-4 py-3 text-center">その他</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {staffRows.map((row) => <tr key={`${row.branchName}-${row.staffName}`} className="hover:bg-blue-50/20"><td className="px-4 py-3 font-bold text-slate-700">{row.branchName}</td><td className="px-4 py-3 font-bold text-slate-900">{row.staffName}</td><td className="px-4 py-3 text-center font-bold">¥{yenK(row.summary.rentalBacklogTotalAmt)}千円</td><td className="px-4 py-3 text-center font-bold">{row.summary.rentalNew.doneCnt}/{row.summary.rentalNew.forecastCnt}件</td><td className="px-4 py-3 text-center font-bold">{row.summary.bed.doneCnt}/{row.summary.bed.forecastCnt}台</td><td className="px-4 py-3 text-center font-bold">{row.summary.renovation.doneCnt}/{row.summary.renovation.forecastCnt}件<br /><span className="text-blue-600">¥{yenK(row.summary.renovation.forecastAmt)}千円</span></td><td className="px-4 py-3 text-center font-bold">{row.summary.equipment.doneCnt}/{row.summary.equipment.forecastCnt}件<br /><span className="text-blue-600">¥{yenK(row.summary.equipment.forecastAmt)}千円</span></td><td className="px-4 py-3 text-center font-bold">¥{yenK(row.summary.otherSales.forecastAmt)}千円</td></tr>)}
+                {!staffRows.length && <tr><td colSpan="8" className="px-4 py-8 text-center font-bold text-slate-500">個人データはまだ登録されていません</td></tr>}
+              </tbody>
+            </table>
+          </div>
+        </Card>
+      </main>
+    </div>
+  );
+};
+
+const App = () => {
+  const [branchSetting, setBranchSetting] = useState(null);
+  const [isChecking, setIsChecking] = useState(true);
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem('solar_silver_branch_setting');
+      if (saved) {
+        const setting = JSON.parse(saved);
+        if (setting?.accessKey) {
+          if (isStoredHeadOfficeSetting(setting)) {
+            const headOfficeSetting = createHeadOfficeSetting();
+            localStorage.setItem('solar_silver_branch_setting', JSON.stringify(headOfficeSetting));
+            setBranchSetting(headOfficeSetting);
+          } else {
+            setBranchSetting(setting);
+          }
+        } else {
+          localStorage.removeItem('solar_silver_branch_setting');
+        }
+      }
+    } catch (e) {
+      console.error(e);
+    }
+    setIsChecking(false);
+  }, []);
+  if (isChecking) return <LoadingScreen />;
+  if (!branchSetting) return <SetupScreen onComplete={setBranchSetting} />;
+  if (branchSetting.isHeadOffice) return <HeadOfficeApp />;
+  return <MainApp branchSetting={branchSetting} />;
+};
+
+createRoot(document.getElementById('root')).render(<App />);
+
+</script>
+  </body>
+</html>
