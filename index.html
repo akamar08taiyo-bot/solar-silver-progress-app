@@ -785,10 +785,10 @@ const PdfProgressCell = ({ p, col }) => {
   }
   return (
     <div style={{ ...pdfCellBaseStyle, height: '25mm' }}>
-      <div style={{ height: '25mm', display: 'grid', gridTemplateRows: '6.2mm 6.2mm 4.2mm 1.4mm 7mm', alignItems: 'center', textAlign: 'center' }}>
+      <div style={{ height: '25mm', display: 'grid', gridTemplateRows: '6mm 6mm 4.8mm 1.2mm 7mm', alignItems: 'center', textAlign: 'center' }}>
         <div style={{ fontSize: '8.2px', fontWeight: 800, lineHeight: 1, color: '#0f172a', whiteSpace: 'nowrap' }}>実績:{pdfProgressValue(p, col, 'done')}</div>
         <div style={{ fontSize: '8.2px', fontWeight: 900, lineHeight: 1, color: '#b91c1c', whiteSpace: 'nowrap' }}>見込み:{pdfProgressValue(p, col, 'forecast')}</div>
-        <div style={{ fontSize: '6.1px', fontWeight: 900, lineHeight: 1, color: '#0f172a', whiteSpace: 'nowrap' }}>{formatSourceBreakdown(p.current[col.key].sourceCount)}</div>
+        <div style={{ fontSize: '6.9px', fontWeight: 950, lineHeight: 1, color: '#020617', whiteSpace: 'nowrap' }}>{formatSourceBreakdown(p.current[col.key].sourceCount)}</div>
         <div style={col.noTarget ? {} : { borderTop: '1px dashed #cbd5e1', margin: '0 2.4mm' }} />
         {col.noTarget ? (
           <div />
@@ -800,6 +800,25 @@ const PdfProgressCell = ({ p, col }) => {
   );
 };
 
+const PdfBranchStatCard = ({ item }) => (
+  <div key={item.label} className="border-2 border-slate-400 rounded-xl p-4">
+    <div className="text-xs font-bold text-slate-900 mb-2">{item.label}</div>
+    {item.sourceCount && (
+      <div style={{ fontSize: '16px', fontWeight: 950, lineHeight: 1.1, color: '#020617', marginBottom: '10px', whiteSpace: 'nowrap' }}>
+        内訳: {formatSourceBreakdown(item.sourceCount)}
+      </div>
+    )}
+    <div className="flex justify-between text-base mb-3">
+      <span className="font-bold">当月実績:</span>
+      <span className="font-bold">{item.actual}{item.unit && !String(item.actual).includes('(') ? item.unit : ''}</span>
+    </div>
+    <div className="flex justify-between border-t-2 border-slate-300 pt-3 text-red-600 text-base">
+      <span className="font-bold">見込み:</span>
+      <span className="font-bold">{item.forecast}{item.unit && !String(item.forecast).includes('(') ? item.unit : ''}</span>
+    </div>
+  </div>
+);
+
 const PDFTemplate = React.forwardRef(({ branchName, currentMonth, branchSummary, branchTotalPersonDetailedSummary }, ref) => (
   <div ref={ref} style={{ width: '210mm', background: 'white', position: 'fixed', left: '-10000px', top: '0', color: '#0f172a', zoom: 1, transform: 'none', letterSpacing: 0 }}>
     <div id="pdf-single-page" className="p-[14mm]" style={{ minHeight: '297mm', display: 'flex', flexDirection: 'column', backgroundColor: '#fff', letterSpacing: 0, fontKerning: 'normal' }}>
@@ -807,7 +826,7 @@ const PDFTemplate = React.forwardRef(({ branchName, currentMonth, branchSummary,
         <div><h1 className="text-3xl font-bold mb-2">受注残・進捗状況報告書</h1><p className="text-xl font-bold text-slate-900">{branchName}</p></div>
         <p className="text-lg font-bold text-slate-900">{formatMonth(currentMonth)}度</p>
       </div>
-      <div className="grid grid-cols-2 gap-5 mb-8">{statRows(branchSummary).slice(0, 4).map((item) => <div key={item.label} className="border-2 border-slate-400 rounded-xl p-4"><div className="text-xs font-bold text-slate-900 mb-3">{item.label}</div><div className="flex justify-between text-base mb-3"><span className="font-bold">当月実績:</span><span className="font-bold">{item.actual}{item.unit && !String(item.actual).includes('(') ? item.unit : ''}</span></div><div className="flex justify-between border-t-2 border-slate-300 pt-3 text-red-600 text-base"><span className="font-bold">見込み:</span><span className="font-bold">{item.forecast}{item.unit && !String(item.forecast).includes('(') ? item.unit : ''}</span></div>{item.sourceCount && <div className="border-t-2 border-slate-300 mt-3 pt-3 text-base font-bold text-slate-900 flex justify-between items-center"><span>内訳:</span><span className="text-right">{formatSourceBreakdown(item.sourceCount)}</span></div>}</div>)}</div>
+      <div className="grid grid-cols-2 gap-5 mb-8">{statRows(branchSummary).slice(0, 4).map((item) => <PdfBranchStatCard key={item.label} item={item} />)}</div>
       <div className="border-2 border-slate-900 rounded-xl pt-1 pb-9 px-6 mb-8 bg-slate-50"><div className="text-sm font-bold text-slate-900 uppercase tracking-widest mb-1">受注残合計 (レンタル・特価見込総額)</div><div className="text-5xl font-bold text-slate-900">¥{yenK(branchSummary.rentalBacklogTotalAmt)}千円</div></div>
       <h2 className="text-base font-bold mb-4 border-l-8 border-slate-800 pl-4">所員別 進捗ステータス詳細</h2>
       <div style={{ width: '100%', display: 'grid', gridTemplateColumns: PDF_PROGRESS_GRID_COLUMNS, borderTop: pdfCellBorder, borderLeft: pdfCellBorder, boxSizing: 'border-box', overflow: 'hidden' }}>
