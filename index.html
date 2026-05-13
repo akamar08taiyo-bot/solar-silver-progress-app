@@ -761,9 +761,16 @@ const pdfProgressValue = (p, col, kind) => {
   return col.isAmount ? `${metric[`${kind}Cnt`]}件/${yenK(metric[`${kind}Amt`])}千円` : metric[`${kind}Cnt`];
 };
 
+const chunkArray = (items, size) => {
+  const chunks = [];
+  for (let i = 0; i < items.length; i += size) chunks.push(items.slice(i, i + size));
+  return chunks;
+};
+
 const PDF_PROGRESS_WIDTHS = ['12%', '14%', '13%', '13%', '16%', '18%', '14%'];
 const PDF_PROGRESS_GRID_COLUMNS = PDF_PROGRESS_WIDTHS.join(' ');
 const pdfCellBorder = '1.2px solid #334155';
+const PDF_STAFF_ROW_HEIGHT = '27mm';
 const pdfCellBaseStyle = {
   borderRight: pdfCellBorder,
   borderBottom: pdfCellBorder,
@@ -775,25 +782,25 @@ const pdfCellBaseStyle = {
 const PdfProgressCell = ({ p, col }) => {
   if (col.isBacklog) {
     return (
-      <div style={{ ...pdfCellBaseStyle, height: '25mm' }}>
-        <div style={{ height: '25mm', display: 'grid', gridTemplateRows: '12mm 13mm', alignItems: 'center', textAlign: 'center', color: '#0f172a' }}>
-          <div style={{ fontSize: '9px', fontWeight: 800, lineHeight: 1, whiteSpace: 'nowrap' }}>受注残</div>
-          <div style={{ fontSize: '9.4px', fontWeight: 900, lineHeight: 1, whiteSpace: 'nowrap' }}>¥{yenK(p.current.rentalBacklogTotalAmt)}千円</div>
+      <div style={{ ...pdfCellBaseStyle, height: PDF_STAFF_ROW_HEIGHT }}>
+        <div style={{ height: PDF_STAFF_ROW_HEIGHT, display: 'grid', gridTemplateRows: '13mm 14mm', alignItems: 'center', textAlign: 'center', color: '#0f172a' }}>
+          <div style={{ fontSize: '10px', fontWeight: 900, lineHeight: 1, whiteSpace: 'nowrap' }}>受注残</div>
+          <div style={{ fontSize: '10.2px', fontWeight: 950, lineHeight: 1, whiteSpace: 'nowrap' }}>¥{yenK(p.current.rentalBacklogTotalAmt)}千円</div>
         </div>
       </div>
     );
   }
   return (
-    <div style={{ ...pdfCellBaseStyle, height: '25mm' }}>
-      <div style={{ height: '25mm', display: 'grid', gridTemplateRows: '6mm 6mm 4.8mm 1.2mm 7mm', alignItems: 'center', textAlign: 'center' }}>
-        <div style={{ fontSize: '8.2px', fontWeight: 800, lineHeight: 1, color: '#0f172a', whiteSpace: 'nowrap' }}>実績:{pdfProgressValue(p, col, 'done')}</div>
-        <div style={{ fontSize: '8.2px', fontWeight: 900, lineHeight: 1, color: '#b91c1c', whiteSpace: 'nowrap' }}>見込み:{pdfProgressValue(p, col, 'forecast')}</div>
-        <div style={{ fontSize: '6.9px', fontWeight: 950, lineHeight: 1, color: '#020617', whiteSpace: 'nowrap' }}>{formatSourceBreakdown(p.current[col.key].sourceCount)}</div>
+    <div style={{ ...pdfCellBaseStyle, height: PDF_STAFF_ROW_HEIGHT }}>
+      <div style={{ height: PDF_STAFF_ROW_HEIGHT, display: 'grid', gridTemplateRows: '6.5mm 6.5mm 5.2mm 1.2mm 7.6mm', alignItems: 'center', textAlign: 'center' }}>
+        <div style={{ fontSize: '8.7px', fontWeight: 900, lineHeight: 1, color: '#0f172a', whiteSpace: 'nowrap' }}>実績:{pdfProgressValue(p, col, 'done')}</div>
+        <div style={{ fontSize: '8.7px', fontWeight: 950, lineHeight: 1, color: '#b91c1c', whiteSpace: 'nowrap' }}>見込み:{pdfProgressValue(p, col, 'forecast')}</div>
+        <div style={{ fontSize: '7.1px', fontWeight: 950, lineHeight: 1, color: '#020617', whiteSpace: 'nowrap' }}>{formatSourceBreakdown(p.current[col.key].sourceCount)}</div>
         <div style={col.noTarget ? {} : { borderTop: '1px dashed #cbd5e1', margin: '0 2.4mm' }} />
         {col.noTarget ? (
           <div />
         ) : (
-          <div style={{ fontSize: '8.3px', fontWeight: 500, lineHeight: 1, color: '#0f172a', whiteSpace: 'nowrap' }}>目標:{col.isAmount ? Number(p[col.targetKey] || 0).toLocaleString() : Number(p[col.targetKey] || 0)}</div>
+          <div style={{ fontSize: '8.8px', fontWeight: 700, lineHeight: 1, color: '#0f172a', whiteSpace: 'nowrap' }}>目標:{col.isAmount ? Number(p[col.targetKey] || 0).toLocaleString() : Number(p[col.targetKey] || 0)}</div>
         )}
       </div>
     </div>
@@ -819,32 +826,52 @@ const PdfBranchStatCard = ({ item }) => (
   </div>
 );
 
-const PDFTemplate = React.forwardRef(({ branchName, currentMonth, branchSummary, branchTotalPersonDetailedSummary }, ref) => (
+const PdfHeader = ({ branchName, currentMonth, compact = false }) => (
+  <div className={`flex justify-between items-end border-b-2 border-slate-900 ${compact ? 'pb-3 mb-5' : 'pb-4 mb-8'}`}>
+    <div><h1 className={`${compact ? 'text-2xl' : 'text-3xl'} font-bold mb-2`}>受注残・進捗状況報告書</h1><p className={`${compact ? 'text-lg' : 'text-xl'} font-bold text-slate-900`}>{branchName}</p></div>
+    <p className="text-lg font-bold text-slate-900">{formatMonth(currentMonth)}度</p>
+  </div>
+);
+
+const PdfStaffTable = ({ people }) => (
+  <div style={{ width: '100%', display: 'grid', gridTemplateColumns: PDF_PROGRESS_GRID_COLUMNS, borderTop: pdfCellBorder, borderLeft: pdfCellBorder, boxSizing: 'border-box', overflow: 'hidden' }}>
+    <div style={{ ...pdfCellBaseStyle, height: '13mm', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: '#f1f5f9', fontSize: '10px', fontWeight: 950, whiteSpace: 'nowrap' }}>氏名</div>
+    {PROGRESS_COLUMNS.map((c) => (
+      <div key={c.key} style={{ ...pdfCellBaseStyle, height: '13mm', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: '#f1f5f9', fontSize: '9px', fontWeight: 950, lineHeight: 1.05, whiteSpace: 'nowrap' }}>{c.title}</div>
+    ))}
+    {people.map((p) => (
+      <React.Fragment key={p.id}>
+        <div style={{ ...pdfCellBaseStyle, height: PDF_STAFF_ROW_HEIGHT, display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: '#f8fafc', fontSize: '13px', fontWeight: 950, whiteSpace: 'nowrap' }}>{p.name}</div>
+        {PROGRESS_COLUMNS.map((c) => <PdfProgressCell key={c.key} p={p} col={c} />)}
+      </React.Fragment>
+    ))}
+  </div>
+);
+
+const PDFTemplate = React.forwardRef(({ branchName, currentMonth, branchSummary, branchTotalPersonDetailedSummary }, ref) => {
+  const staffPages = chunkArray(branchTotalPersonDetailedSummary, 8);
+  return (
   <div ref={ref} style={{ width: '210mm', background: 'white', position: 'fixed', left: '-10000px', top: '0', color: '#0f172a', zoom: 1, transform: 'none', letterSpacing: 0 }}>
-    <div id="pdf-single-page" className="p-[14mm]" style={{ minHeight: '297mm', display: 'flex', flexDirection: 'column', backgroundColor: '#fff', letterSpacing: 0, fontKerning: 'normal' }}>
-      <div className="flex justify-between items-end border-b-2 border-slate-900 pb-4 mb-8">
-        <div><h1 className="text-3xl font-bold mb-2">受注残・進捗状況報告書</h1><p className="text-xl font-bold text-slate-900">{branchName}</p></div>
-        <p className="text-lg font-bold text-slate-900">{formatMonth(currentMonth)}度</p>
-      </div>
+    <div className="pdf-page p-[14mm]" style={{ width: '210mm', height: '297mm', display: 'flex', flexDirection: 'column', backgroundColor: '#fff', letterSpacing: 0, fontKerning: 'normal', overflow: 'hidden' }}>
+      <PdfHeader branchName={branchName} currentMonth={currentMonth} />
       <div className="grid grid-cols-2 gap-5 mb-8">{statRows(branchSummary).slice(0, 4).map((item) => <PdfBranchStatCard key={item.label} item={item} />)}</div>
       <div className="border-2 border-slate-900 rounded-xl pt-1 pb-9 px-6 mb-8 bg-slate-50"><div className="text-sm font-bold text-slate-900 uppercase tracking-widest mb-1">受注残合計 (レンタル・特価見込総額)</div><div className="text-5xl font-bold text-slate-900">¥{yenK(branchSummary.rentalBacklogTotalAmt)}千円</div></div>
-      <h2 className="text-base font-bold mb-4 border-l-8 border-slate-800 pl-4">所員別 進捗ステータス詳細</h2>
-      <div style={{ width: '100%', display: 'grid', gridTemplateColumns: PDF_PROGRESS_GRID_COLUMNS, borderTop: pdfCellBorder, borderLeft: pdfCellBorder, boxSizing: 'border-box', overflow: 'hidden' }}>
-        <div style={{ ...pdfCellBaseStyle, height: '12mm', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: '#f1f5f9', fontSize: '9px', fontWeight: 900, whiteSpace: 'nowrap' }}>氏名</div>
-        {PROGRESS_COLUMNS.map((c) => (
-          <div key={c.key} style={{ ...pdfCellBaseStyle, height: '12mm', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: '#f1f5f9', fontSize: '8.3px', fontWeight: 900, lineHeight: 1.05, whiteSpace: 'nowrap' }}>{c.title}</div>
-        ))}
-        {branchTotalPersonDetailedSummary.map((p) => (
-          <React.Fragment key={p.id}>
-            <div style={{ ...pdfCellBaseStyle, height: '25mm', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: '#f8fafc', fontSize: '12px', fontWeight: 900, whiteSpace: 'nowrap' }}>{p.name}</div>
-            {PROGRESS_COLUMNS.map((c) => <PdfProgressCell key={c.key} p={p} col={c} />)}
-          </React.Fragment>
-        ))}
-      </div>
-      <div className="mt-10 pt-5 text-right text-[10px] text-slate-900 font-bold border-t border-slate-200">太陽シルバーサービス株式会社 {branchName} 進捗管理報告</div>
+      <div className="mt-auto pt-5 text-right text-[10px] text-slate-900 font-bold border-t border-slate-200">太陽シルバーサービス株式会社 {branchName} 進捗管理報告</div>
     </div>
+    {staffPages.map((people, index) => (
+      <div key={`staff-page-${index}`} className="pdf-page p-[10mm]" style={{ width: '210mm', height: '297mm', display: 'flex', flexDirection: 'column', backgroundColor: '#fff', letterSpacing: 0, fontKerning: 'normal', overflow: 'hidden' }}>
+        <PdfHeader branchName={branchName} currentMonth={currentMonth} compact />
+        <div className="flex justify-between items-center mb-4">
+          <h2 className="text-xl font-bold border-l-8 border-slate-800 pl-4">所員別 進捗ステータス詳細</h2>
+          <div className="text-sm font-bold text-slate-700">{index + 1}/{staffPages.length}ページ</div>
+        </div>
+        <PdfStaffTable people={people} />
+        <div className="mt-auto pt-4 text-right text-[10px] text-slate-900 font-bold border-t border-slate-200">太陽シルバーサービス株式会社 {branchName} 進捗管理報告</div>
+      </div>
+    ))}
   </div>
-));
+  );
+});
 
 const MainApp = ({ branchSetting }) => {
   const BRANCH_ID = branchSetting.id;
@@ -895,8 +922,8 @@ const MainApp = ({ branchSetting }) => {
       .field-input:focus{background:white;border-color:#60a5fa}
       input[type="number"]::-webkit-outer-spin-button,input[type="number"]::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
       input[type="number"]{-moz-appearance:textfield;appearance:textfield}
-      #pdf-single-page,#pdf-single-page *{letter-spacing:0;font-kerning:normal;text-rendering:geometricPrecision}
-      #pdf-single-page table{table-layout:fixed;border-collapse:collapse}
+      .pdf-page,.pdf-page *{letter-spacing:0;font-kerning:normal;text-rendering:geometricPrecision}
+      .pdf-page table{table-layout:fixed;border-collapse:collapse}
       html.is-exporting-pdf #app-root,html.is-printing #app-root{zoom:1!important;transform:none!important;transform-origin:top left!important}
       @media print{
         @page{size:auto;margin:10mm}
@@ -1319,14 +1346,18 @@ const MainApp = ({ branchSetting }) => {
       ]);
       await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
       await new Promise((resolve) => setTimeout(resolve, 300));
-      const template = document.getElementById('pdf-single-page');
-      const canvas = await window.html2canvas(template, { scale: 2, useCORS: true, logging: false, backgroundColor: '#ffffff' });
-      const imgData = canvas.toDataURL('image/jpeg', 0.95);
+      const pages = Array.from(document.querySelectorAll('.pdf-page'));
+      if (!pages.length) throw new Error('PDF pages not found');
       const { jsPDF } = window.jspdf;
       const pdf = new jsPDF({ orientation: 'p', unit: 'mm', format: 'a4', compress: true });
       const pdfWidth = pdf.internal.pageSize.getWidth();
-      const pdfHeight = (canvas.height * pdfWidth) / canvas.width;
-      pdf.addImage(imgData, 'JPEG', 0, 0, pdfWidth, pdfHeight);
+      const pdfPageHeight = pdf.internal.pageSize.getHeight();
+      for (let i = 0; i < pages.length; i++) {
+        const canvas = await window.html2canvas(pages[i], { scale: 2, useCORS: true, logging: false, backgroundColor: '#ffffff' });
+        const imgData = canvas.toDataURL('image/jpeg', 0.95);
+        if (i > 0) pdf.addPage();
+        pdf.addImage(imgData, 'JPEG', 0, 0, pdfWidth, pdfPageHeight);
+      }
       pdf.save(`${BRANCH_NAME}_進捗_${currentMonth}.pdf`);
       showMessage('印刷用PDFを保存しました');
     } catch (error) {
