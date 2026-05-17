@@ -1311,11 +1311,11 @@ const MainApp = ({ branchSetting }) => {
       { title: '住宅改修依頼数', mode: 'count', filter: (o) => o.category === '住宅改修', value: () => 1 },
       { title: '住宅改修金額合計', mode: 'amount', filter: (o) => o.category === '住宅改修', value: (o) => Number(o.amount || 0) }
     ];
-    const buildGroups = (targetOrders) => rankingMetrics.map((metric) => {
+    const buildGroups = (targetOrders, rankBy = 'source') => rankingMetrics.map((metric) => {
       const map = {};
       for (const order of targetOrders) {
         if (!metric.filter(order)) continue;
-        const key = order.source || 'その他';
+        const key = rankBy === 'office' ? (order.careHomeName?.trim() || '未入力') : (order.source || 'その他');
         if (!map[key]) map[key] = { label: key, count: 0, amount: 0 };
         if (metric.mode === 'amount') {
           map[key].amount += metric.value(order);
@@ -1330,10 +1330,10 @@ const MainApp = ({ branchSetting }) => {
       return { title: metric.title, rows, mode: metric.mode };
     });
     return {
-      branch: { title: `${BRANCH_NAME} 営業所合計`, sourceCount: sourceTotal(fiscalOrders), groups: buildGroups(fiscalOrders) },
+      branch: { title: `${BRANCH_NAME} 営業所合計`, sourceCount: sourceTotal(fiscalOrders), sourceGroups: buildGroups(fiscalOrders, 'source'), officeGroups: buildGroups(fiscalOrders, 'office') },
       personal: salespersons.filter((staff) => staff?.id).map((staff) => {
         const staffOrders = fiscalOrders.filter((o) => Number(o.salespersonId) === Number(staff.id));
-        return { id: staff.id, name: staff.name, sourceCount: sourceTotal(staffOrders), groups: buildGroups(staffOrders) };
+        return { id: staff.id, name: staff.name, sourceCount: sourceTotal(staffOrders), sourceGroups: buildGroups(staffOrders, 'source'), officeGroups: buildGroups(staffOrders, 'office') };
       })
     };
   }, [BRANCH_NAME, currentMonth, orders, salespersons]);
@@ -1492,7 +1492,14 @@ const RankingInsightsPanel = ({ insights, compact = false }) => (
           <h3 className="text-sm font-extrabold text-slate-900">{insights.branch.title}</h3>
           <SourceCountSummary sourceCount={insights.branch.sourceCount} />
         </div>
-        <RankingGroupGrid groups={insights.branch.groups} compact={compact} />
+        <div className="space-y-3">
+          <h4 className="text-xs font-extrabold text-blue-700 tracking-widest uppercase">依頼元ランキング</h4>
+          <RankingGroupGrid groups={insights.branch.sourceGroups} compact={compact} />
+        </div>
+        <div className="space-y-3">
+          <h4 className="text-xs font-extrabold text-slate-700 tracking-widest uppercase">事業所名ランキング</h4>
+          <RankingGroupGrid groups={insights.branch.officeGroups} compact={compact} />
+        </div>
       </section>
       <section className="space-y-3">
         <h3 className="text-sm font-extrabold text-slate-900">個人別ランキング</h3>
@@ -1506,8 +1513,15 @@ const RankingInsightsPanel = ({ insights, compact = false }) => (
                   <span className="text-xs font-extrabold text-blue-600 bg-blue-50 px-3 py-1.5 rounded-lg whitespace-nowrap">表示</span>
                 </div>
               </summary>
-              <div className="border-t border-slate-100 p-4">
-                <RankingGroupGrid groups={person.groups} compact={compact} />
+              <div className="border-t border-slate-100 p-4 space-y-4">
+                <div className="space-y-3">
+                  <h4 className="text-xs font-extrabold text-blue-700 tracking-widest uppercase">依頼元ランキング</h4>
+                  <RankingGroupGrid groups={person.sourceGroups} compact={compact} />
+                </div>
+                <div className="space-y-3">
+                  <h4 className="text-xs font-extrabold text-slate-700 tracking-widest uppercase">事業所名ランキング</h4>
+                  <RankingGroupGrid groups={person.officeGroups} compact={compact} />
+                </div>
               </div>
             </details>
           ))}
@@ -1520,12 +1534,12 @@ const RankingInsightsPanel = ({ insights, compact = false }) => (
 
 const ProgressCard = ({ data }) => {
   const rows = [
-    { label: 'レンタル新規 (件)', current: data.current.rentalNew.doneCnt, target: data.targetRentalNew, unit: '件' },
-    { label: '特価ベッド (台)', current: data.current.bed.doneCnt, target: data.targetBedNew, unit: '台' },
-    { label: '住宅改修 (予算)', current: data.current.renovation.doneAmt, target: data.budgetRenovation, unit: '円', isAmount: true },
-    { label: '特定福祉用具 (予算)', current: data.current.equipment.doneAmt, target: data.budgetEquipment, unit: '円', isAmount: true }
+    { label: 'レンタル新規 見込み (件)', current: data.current.rentalNew.forecastCnt, target: data.targetRentalNew, unit: '件' },
+    { label: '特価ベッド 見込み (台)', current: data.current.bed.forecastCnt, target: data.targetBedNew, unit: '台' },
+    { label: '住宅改修 見込み (件)', current: data.current.renovation.forecastCnt, target: data.targetRenovationCnt, unit: '件' },
+    { label: '特定福祉用具 見込み (件)', current: data.current.equipment.forecastCnt, target: data.targetEquipmentCnt, unit: '件' }
   ];
-  return <Card className="p-4 space-y-4 shadow-md border-slate-200"><div className="flex justify-between items-center border-b border-slate-100 pb-2"><span className="text-xl font-bold text-slate-800">{data.name}</span><span className="text-[10px] font-bold text-slate-700 uppercase tracking-widest bg-slate-50 px-3 py-1 rounded-full">進捗</span></div>{rows.map((row) => <div key={row.label} className="space-y-1.5"><div className="flex justify-between items-end leading-none"><div className="text-xs font-bold text-slate-600">{row.label}</div><div className="text-lg font-bold text-slate-800 shrink-0">{row.isAmount ? `¥${row.current.toLocaleString()}` : `${row.current}${row.unit}`}<span className="text-xs text-slate-600 font-normal ml-2">/ {row.isAmount ? `¥${Number(row.target || 0).toLocaleString()}` : `${Number(row.target || 0)}${row.unit}`}</span></div></div><div className="h-2.5 bg-slate-100 rounded-full overflow-hidden shadow-inner border border-slate-200/50"><div className="bg-blue-400 h-full transition-all duration-1000 shadow-sm" style={{ width: `${Math.min(100, (row.current / (row.target || 1)) * 100)}%` }} /></div></div>)}</Card>;
+  return <Card className="p-4 space-y-4 shadow-md border-slate-200"><div className="flex justify-between items-center border-b border-slate-100 pb-2"><span className="text-xl font-bold text-slate-800">{data.name}</span><span className="text-[10px] font-bold text-slate-700 uppercase tracking-widest bg-slate-50 px-3 py-1 rounded-full">見込み基準</span></div>{rows.map((row) => { const target = Number(row.target || 0); const current = Number(row.current || 0); const achieved = target > 0 && current >= target; return <div key={row.label} className="space-y-1.5"><div className="flex justify-between items-end leading-none gap-3"><div className="text-xs font-bold text-slate-600">{row.label}</div><div className="text-lg font-bold text-slate-800 shrink-0">{current.toLocaleString()}{row.unit}<span className="text-xs text-slate-600 font-normal ml-2">/ {target.toLocaleString()}{row.unit}</span><span className={`ml-2 text-[10px] font-extrabold px-2 py-0.5 rounded-full ${achieved ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>{achieved ? '達成' : '未達'}</span></div></div><div className="h-2.5 bg-slate-100 rounded-full overflow-hidden shadow-inner border border-slate-200/50"><div className={`${achieved ? 'bg-emerald-400' : 'bg-blue-400'} h-full transition-all duration-1000 shadow-sm`} style={{ width: `${Math.min(100, (current / (target || 1)) * 100)}%` }} /></div></div>; })}</Card>;
 };
 
 const AddStaffCard = ({ value, setValue, onAdd }) => <div className="bg-white rounded-[1.5rem] p-8 border-4 border-dashed border-slate-200 flex flex-col gap-6 justify-center items-center min-h-[300px] shadow-inner text-center"><input value={value} onChange={(e) => setValue(e.target.value)} placeholder="新所員名を入力" className="bg-slate-50 border border-slate-200 rounded-xl px-6 py-4 font-bold text-xl outline-none w-full text-center" {...JAPANESE_TEXT_INPUT_PROPS} /><button onClick={onAdd} className="w-full bg-blue-500 text-white py-4 rounded-xl font-bold text-lg hover:bg-blue-400 shadow-xl transition-all">スタッフ追加</button></div>;
@@ -1707,11 +1721,15 @@ const HeadOfficeApp = () => {
   }, [currentMonth, visibleBranchData]);
   const selectedBranchRow = useMemo(() => selectedBranch === 'all' ? null : branchRows.find((row) => row.appId === selectedBranch), [branchRows, selectedBranch]);
   const rankingRows = useMemo(() => {
-    const activeRows = staffRows.filter((row) => row.summary.rentalNew.forecastCnt || row.summary.renovation.forecastAmt || row.summary.equipment.forecastAmt);
+    const activeRows = staffRows.filter((row) => row.summary.rentalNew.forecastCnt || row.summary.rentalNew.forecastAmt || row.summary.bed.forecastCnt || row.summary.renovation.forecastCnt || row.summary.renovation.forecastAmt || row.summary.equipment.forecastCnt || row.summary.equipment.forecastAmt);
     return {
-      rentalNew: [...activeRows].sort((a, b) => b.summary.rentalNew.forecastCnt - a.summary.rentalNew.forecastCnt || b.summary.rentalBacklogTotalAmt - a.summary.rentalBacklogTotalAmt).slice(0, 10),
-      renovation: [...activeRows].sort((a, b) => b.summary.renovation.forecastAmt - a.summary.renovation.forecastAmt || b.summary.renovation.forecastCnt - a.summary.renovation.forecastCnt).slice(0, 10),
-      equipment: [...activeRows].sort((a, b) => b.summary.equipment.forecastAmt - a.summary.equipment.forecastAmt || b.summary.equipment.forecastCnt - a.summary.equipment.forecastCnt).slice(0, 10)
+      rentalNewCount: [...activeRows].sort((a, b) => b.summary.rentalNew.forecastCnt - a.summary.rentalNew.forecastCnt || b.summary.rentalNew.forecastAmt - a.summary.rentalNew.forecastAmt).slice(0, 10),
+      rentalNewAmount: [...activeRows].sort((a, b) => b.summary.rentalNew.forecastAmt - a.summary.rentalNew.forecastAmt || b.summary.rentalNew.forecastCnt - a.summary.rentalNew.forecastCnt).slice(0, 10),
+      bedCount: [...activeRows].sort((a, b) => b.summary.bed.forecastCnt - a.summary.bed.forecastCnt || b.summary.bed.forecastAmt - a.summary.bed.forecastAmt).slice(0, 10),
+      equipmentCount: [...activeRows].sort((a, b) => b.summary.equipment.forecastCnt - a.summary.equipment.forecastCnt || b.summary.equipment.forecastAmt - a.summary.equipment.forecastAmt).slice(0, 10),
+      equipmentAmount: [...activeRows].sort((a, b) => b.summary.equipment.forecastAmt - a.summary.equipment.forecastAmt || b.summary.equipment.forecastCnt - a.summary.equipment.forecastCnt).slice(0, 10),
+      renovationCount: [...activeRows].sort((a, b) => b.summary.renovation.forecastCnt - a.summary.renovation.forecastCnt || b.summary.renovation.forecastAmt - a.summary.renovation.forecastAmt).slice(0, 10),
+      renovationAmount: [...activeRows].sort((a, b) => b.summary.renovation.forecastAmt - a.summary.renovation.forecastAmt || b.summary.renovation.forecastCnt - a.summary.renovation.forecastCnt).slice(0, 10)
     };
   }, [staffRows]);
   const totalSalesForecast = allSummary.renovation.forecastAmt + allSummary.equipment.forecastAmt + allSummary.otherSales.forecastAmt;
@@ -1776,9 +1794,13 @@ const HeadOfficeApp = () => {
           </button>
           {showRankings && (
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mt-4">
-              <HeadOfficeRankingList title="新規件数 上位" rows={rankingRows.rentalNew} valueLabel="レンタル新規" valueFormat={(row) => `${row.summary.rentalNew.forecastCnt}件`} />
-              <HeadOfficeRankingList title="住宅改修売上 上位" rows={rankingRows.renovation} valueLabel="見込み売上" valueFormat={(row) => `¥${yenK(row.summary.renovation.forecastAmt)}千円`} />
-              <HeadOfficeRankingList title="特定福祉用具売上 上位" rows={rankingRows.equipment} valueLabel="見込み売上" valueFormat={(row) => `¥${yenK(row.summary.equipment.forecastAmt)}千円`} />
+              <HeadOfficeRankingList title="新規レンタル件数 上位" rows={rankingRows.rentalNewCount} valueLabel="依頼数" valueFormat={(row) => `${row.summary.rentalNew.forecastCnt}件`} />
+              <HeadOfficeRankingList title="新規レンタル金額合計 上位" rows={rankingRows.rentalNewAmount} valueLabel="新規のみ" valueFormat={(row) => `¥${yenK(row.summary.rentalNew.forecastAmt)}千円`} />
+              <HeadOfficeRankingList title="特価ベッド依頼数 上位" rows={rankingRows.bedCount} valueLabel="依頼数" valueFormat={(row) => `${row.summary.bed.forecastCnt}台`} />
+              <HeadOfficeRankingList title="特定福祉用具依頼数 上位" rows={rankingRows.equipmentCount} valueLabel="依頼数" valueFormat={(row) => `${row.summary.equipment.forecastCnt}件`} />
+              <HeadOfficeRankingList title="特定福祉用具金額合計 上位" rows={rankingRows.equipmentAmount} valueLabel="金額合計" valueFormat={(row) => `¥${yenK(row.summary.equipment.forecastAmt)}千円`} />
+              <HeadOfficeRankingList title="住宅改修依頼数 上位" rows={rankingRows.renovationCount} valueLabel="依頼数" valueFormat={(row) => `${row.summary.renovation.forecastCnt}件`} />
+              <HeadOfficeRankingList title="住宅改修金額合計 上位" rows={rankingRows.renovationAmount} valueLabel="金額合計" valueFormat={(row) => `¥${yenK(row.summary.renovation.forecastAmt)}千円`} />
             </div>
           )}
         </Card>
