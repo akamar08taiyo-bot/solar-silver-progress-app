@@ -1343,11 +1343,12 @@ const MainApp = ({ branchSetting }) => {
     ];
     const buildGroups = (targetOrders, rankBy = 'source') => rankingMetrics.map((metric) => {
       const map = {};
+      const metricSourceCount = createSourceCount();
       for (const order of targetOrders) {
         if (!metric.filter(order)) continue;
         const key = rankBy === 'office' ? (order.careHomeName?.trim() || '未入力') : (order.source || 'その他');
-        if (!map[key]) map[key] = { label: key, count: 0, amount: 0, sourceCount: createSourceCount() };
-        if (order.source && map[key].sourceCount[order.source] !== undefined) map[key].sourceCount[order.source] += 1;
+        if (!map[key]) map[key] = { label: key, count: 0, amount: 0 };
+        if (order.source && metricSourceCount[order.source] !== undefined) metricSourceCount[order.source] += 1;
         if (metric.mode === 'amount') {
           map[key].amount += metric.value(order);
           map[key].count += 1;
@@ -1358,7 +1359,7 @@ const MainApp = ({ branchSetting }) => {
       const rows = Object.values(map)
         .sort((a, b) => metric.mode === 'amount' ? (b.amount - a.amount) || (b.count - a.count) : (b.count - a.count) || (b.amount - a.amount))
         .slice(0, 8);
-      return { title: metric.title, rows, mode: metric.mode };
+      return { title: metric.title, rows, mode: metric.mode, sourceCount: metricSourceCount };
     });
     const pickGroups = (targetOrders) => {
       if (rankingKind === 'newRental') return { label: '新規ランキング', groups: buildGroups(targetOrders, 'office').filter((group) => group.title.includes('新規レンタル')) };
@@ -1492,7 +1493,14 @@ const RankingGroupGrid = ({ groups, compact = false }) => (
   <div className={`grid gap-4 ${compact ? 'grid-cols-1 lg:grid-cols-3' : 'grid-cols-1 md:grid-cols-2 xl:grid-cols-3'}`}>
     {groups.map((group) => (
       <div key={group.title} className="border border-slate-100 rounded-xl overflow-hidden bg-slate-50/50">
-        <div className="px-4 py-3 bg-white border-b border-slate-100 font-bold text-slate-800 text-sm">{group.title}</div>
+        <div className="px-4 py-3 bg-white border-b border-slate-100 flex flex-col gap-2">
+          <div className="font-bold text-slate-800 text-sm">{group.title}</div>
+          <div className="flex flex-wrap gap-2 text-[11px] font-extrabold text-slate-700">
+            <span className="px-2 py-1 rounded-md bg-blue-50 border border-blue-100">包括 {group.sourceCount?.['包括'] || 0}件</span>
+            <span className="px-2 py-1 rounded-md bg-emerald-50 border border-emerald-100">居宅 {group.sourceCount?.['居宅'] || 0}件</span>
+            <span className="px-2 py-1 rounded-md bg-slate-50 border border-slate-200">連携室 {group.sourceCount?.['退院/連携室'] || 0}件</span>
+          </div>
+        </div>
         <div className="divide-y divide-slate-100">
           {group.rows.map((row, index) => (
             <div key={`${group.title}-${row.label}-${index}`} className="px-4 py-3 flex items-center justify-between gap-3">
@@ -1500,7 +1508,6 @@ const RankingGroupGrid = ({ groups, compact = false }) => (
                 <span className="w-7 h-7 rounded-lg bg-white border border-slate-200 text-slate-700 flex items-center justify-center text-sm font-extrabold shrink-0">{index + 1}</span>
                 <div className="min-w-0">
                   <div className="font-bold text-slate-800 text-base truncate">{row.label}</div>
-                  <div className="text-[11px] font-extrabold text-slate-600 mt-1 whitespace-nowrap">包括 {row.sourceCount?.['包括'] || 0}件　居宅 {row.sourceCount?.['居宅'] || 0}件　連携室 {row.sourceCount?.['退院/連携室'] || 0}件</div>
                 </div>
               </div>
               <div className="text-right shrink-0">
