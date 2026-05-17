@@ -921,7 +921,7 @@ const MainApp = ({ branchSetting }) => {
   const [trendStaffId, setTrendStaffId] = useState('overall');
   const [rankingPeriod, setRankingPeriod] = useState('fiscalYear');
   const [rankingStaffId, setRankingStaffId] = useState('all');
-  const [rankingKind, setRankingKind] = useState('source');
+  const [rankingKind, setRankingKind] = useState('office');
   const [branchTotalStaffId, setBranchTotalStaffId] = useState('all');
   const [branchTotalSourceFilter, setBranchTotalSourceFilter] = useState('すべて');
   const [listSourceFilter, setListSourceFilter] = useState('すべて');
@@ -1346,7 +1346,8 @@ const MainApp = ({ branchSetting }) => {
       for (const order of targetOrders) {
         if (!metric.filter(order)) continue;
         const key = rankBy === 'office' ? (order.careHomeName?.trim() || '未入力') : (order.source || 'その他');
-        if (!map[key]) map[key] = { label: key, count: 0, amount: 0 };
+        if (!map[key]) map[key] = { label: key, count: 0, amount: 0, sourceCount: createSourceCount() };
+        if (order.source && map[key].sourceCount[order.source] !== undefined) map[key].sourceCount[order.source] += 1;
         if (metric.mode === 'amount') {
           map[key].amount += metric.value(order);
           map[key].count += 1;
@@ -1360,9 +1361,8 @@ const MainApp = ({ branchSetting }) => {
       return { title: metric.title, rows, mode: metric.mode };
     });
     const pickGroups = (targetOrders) => {
-      if (rankingKind === 'office') return { label: '事業所名ランキング', groups: buildGroups(targetOrders, 'office') };
-      if (rankingKind === 'newRental') return { label: '新規ランキング', groups: buildGroups(targetOrders, 'source').filter((group) => group.title.includes('新規レンタル')) };
-      return { label: '依頼元ランキング', groups: buildGroups(targetOrders, 'source') };
+      if (rankingKind === 'newRental') return { label: '新規ランキング', groups: buildGroups(targetOrders, 'office').filter((group) => group.title.includes('新規レンタル')) };
+      return { label: '事業所ランキング', groups: buildGroups(targetOrders, 'office') };
     };
     const branchGroups = pickGroups(filteredOrders);
     return {
@@ -1495,14 +1495,17 @@ const RankingGroupGrid = ({ groups, compact = false }) => (
         <div className="px-4 py-3 bg-white border-b border-slate-100 font-bold text-slate-800 text-sm">{group.title}</div>
         <div className="divide-y divide-slate-100">
           {group.rows.map((row, index) => (
-            <div key={`${group.title}-${row.label}-${index}`} className="px-4 py-2.5 flex items-center justify-between gap-3">
-              <div className="min-w-0 flex items-center gap-2">
-                <span className="w-6 h-6 rounded-lg bg-white border border-slate-200 text-slate-700 flex items-center justify-center text-xs font-extrabold shrink-0">{index + 1}</span>
-                <div className="font-bold text-slate-800 text-sm truncate">{row.label}</div>
+            <div key={`${group.title}-${row.label}-${index}`} className="px-4 py-3 flex items-center justify-between gap-3">
+              <div className="min-w-0 flex items-start gap-2">
+                <span className="w-7 h-7 rounded-lg bg-white border border-slate-200 text-slate-700 flex items-center justify-center text-sm font-extrabold shrink-0">{index + 1}</span>
+                <div className="min-w-0">
+                  <div className="font-bold text-slate-800 text-base truncate">{row.label}</div>
+                  <div className="text-[11px] font-extrabold text-slate-600 mt-1 whitespace-nowrap">包括 {row.sourceCount?.['包括'] || 0}件　居宅 {row.sourceCount?.['居宅'] || 0}件　連携室 {row.sourceCount?.['退院/連携室'] || 0}件</div>
+                </div>
               </div>
               <div className="text-right shrink-0">
-                <div className="font-extrabold text-blue-600 text-sm whitespace-nowrap">{group.mode === 'amount' ? `${yenK(row.amount)}千円` : `${row.count}件`}</div>
-                {group.mode === 'amount' && <div className="text-[10px] font-bold text-slate-500 whitespace-nowrap">{row.count}件</div>}
+                <div className="font-extrabold text-blue-600 text-base whitespace-nowrap">{group.mode === 'amount' ? `${yenK(row.amount)}千円` : `${row.count}件`}</div>
+                {group.mode === 'amount' && <div className="text-xs font-bold text-slate-500 whitespace-nowrap">{row.count}件</div>}
               </div>
             </div>
           ))}
@@ -1514,28 +1517,28 @@ const RankingGroupGrid = ({ groups, compact = false }) => (
 );
 
 const RankingControlSelect = ({ value, onChange, children, label }) => (
-  <label className="flex flex-col gap-1 min-w-[150px]">
-    <span className="text-[10px] font-extrabold text-slate-500 tracking-widest uppercase">{label}</span>
-    <select value={value} onChange={(e) => onChange(e.target.value)} className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-bold text-slate-800 outline-none">
+  <label className="flex flex-col gap-1.5 min-w-[180px]">
+    <span className="text-xs font-extrabold text-slate-600 tracking-widest uppercase">{label}</span>
+    <select value={value} onChange={(e) => onChange(e.target.value)} className="bg-white border-2 border-slate-200 rounded-xl px-4 py-3 text-base font-bold text-slate-900 outline-none shadow-sm focus:border-blue-400">
       {children}
     </select>
   </label>
 );
 
-const RankingInsightsPanel = ({ insights, compact = false, salespersons = [], period = 'fiscalYear', setPeriod = () => {}, staffId = 'all', setStaffId = () => {}, kind = 'source', setKind = () => {} }) => (
+const RankingInsightsPanel = ({ insights, compact = false, salespersons = [], period = 'fiscalYear', setPeriod = () => {}, staffId = 'all', setStaffId = () => {}, kind = 'office', setKind = () => {} }) => (
   <details className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden print:hidden">
     <summary className="cursor-pointer list-none px-5 py-4 flex items-center justify-between gap-4 hover:bg-slate-50">
       <div className="flex items-center gap-3 min-w-0">
-        <div className="w-9 h-9 rounded-xl bg-blue-50 text-blue-500 flex items-center justify-center shrink-0"><TrendingUp size={18} /></div>
+        <div className="w-12 h-12 rounded-xl bg-blue-50 text-blue-500 flex items-center justify-center shrink-0"><TrendingUp size={24} /></div>
         <div className="min-w-0">
-          <div className="text-base font-bold text-slate-800 truncate">ランキングを見る</div>
-          <div className="text-xs font-bold text-slate-500 truncate">{insights.periodLabel} / {insights.branch.rankingLabel}を確認できます</div>
+          <div className="text-xl font-bold text-slate-800 truncate">ランキングを見る</div>
+          <div className="text-sm font-bold text-slate-500 truncate">{insights.periodLabel} / {insights.branch.rankingLabel}を確認できます</div>
         </div>
       </div>
-      <span className="text-xs font-extrabold text-blue-600 bg-blue-50 px-3 py-1.5 rounded-lg whitespace-nowrap">開く</span>
+      <span className="text-base font-extrabold text-blue-600 bg-blue-50 px-5 py-2.5 rounded-xl whitespace-nowrap">開く</span>
     </summary>
     <div className="border-t border-slate-100 p-4 space-y-5">
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 bg-slate-50 border border-slate-100 rounded-xl p-3">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 bg-blue-50/60 border border-blue-100 rounded-2xl p-4">
         <RankingControlSelect label="期間" value={period} onChange={setPeriod}>
           {RANKING_PERIOD_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
         </RankingControlSelect>
@@ -1544,7 +1547,6 @@ const RankingInsightsPanel = ({ insights, compact = false, salespersons = [], pe
           {salespersons.filter((staff) => staff?.id).map((staff) => <option key={staff.id} value={staff.id}>{staff.name}</option>)}
         </RankingControlSelect>
         <RankingControlSelect label="ランキング" value={kind} onChange={setKind}>
-          <option value="source">依頼元ランキング</option>
           <option value="office">事業所ランキング</option>
           <option value="newRental">新規ランキング</option>
         </RankingControlSelect>
@@ -1823,16 +1825,24 @@ const HeadOfficeApp = () => {
         <div className="max-w-7xl mx-auto px-5 h-20 flex items-center justify-between">
           <div className="flex items-center gap-4"><ShieldCheck size={32} className="text-slate-700 hidden sm:block" /><div><h1 className="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight">本社 集計ダッシュボード</h1><p className="text-xs font-bold text-slate-500">全営業所状況</p></div></div>
           <div className="flex items-center gap-3">
-            <select value={selectedBranch} onChange={(e) => setSelectedBranch(e.target.value)} className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 font-bold text-sm outline-none">
-              <option value="all">全営業所</option>
-              {branches.map((branch) => <option key={branch.appId} value={branch.appId}>{branch.branchName}</option>)}
-            </select>
             <div className="flex items-center gap-2 bg-slate-50 px-3 py-2 rounded-xl shadow-inner border border-slate-200"><Calendar size={18} className="text-slate-500 hidden sm:block" /><input type="month" value={currentMonth} onChange={(e) => setCurrentMonth(e.target.value)} className="bg-transparent border-none text-sm font-bold text-slate-800 outline-none cursor-pointer" /></div>
             <button onClick={handleReset} className="text-xs font-bold text-slate-600 bg-slate-50 hover:bg-slate-100 border border-slate-200 px-3 py-2 rounded-xl">切替</button>
           </div>
         </div>
       </header>
       <main className="max-w-7xl mx-auto p-4 sm:p-6 space-y-6">
+        <Card className="p-5 shadow-md border-blue-100 bg-white">
+          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+            <div>
+              <div className="text-xs font-extrabold text-blue-600 tracking-widest uppercase mb-1">表示営業所</div>
+              <div className="text-2xl font-bold text-slate-900">{selectedBranch === 'all' ? '全営業所' : branches.find((branch) => branch.appId === selectedBranch)?.branchName || '営業所'}</div>
+            </div>
+            <select value={selectedBranch} onChange={(e) => setSelectedBranch(e.target.value)} className="w-full lg:w-[360px] bg-blue-50 border-2 border-blue-200 rounded-2xl px-5 py-4 font-extrabold text-lg text-slate-900 outline-none shadow-sm focus:border-blue-500">
+              <option value="all">全営業所</option>
+              {branches.map((branch) => <option key={branch.appId} value={branch.appId}>{branch.branchName}</option>)}
+            </select>
+          </div>
+        </Card>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
           <HeadOfficeMetric label="登録営業所" value={`${branches.length}拠点`} />
           <HeadOfficeMetric label="レンタル新規 見込み" value={`${allSummary.rentalNew.forecastCnt}件`} sub={`実績 ${allSummary.rentalNew.doneCnt}件`} />
