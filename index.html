@@ -929,8 +929,8 @@ const MainApp = ({ branchSetting }) => {
   const [newStaffName, setNewStaffName] = useState('');
   const [selectedCategoryFilter, setSelectedCategoryFilter] = useState('すべて');
   const [showBranchPreview, setShowBranchPreview] = useState(false);
-  const [zoomLevel, setZoomLevel] = useState(1);
-  const zoomLevelRef = useRef(1);
+  const [zoomLevel, setZoomLevel] = useState(1.2);
+  const zoomLevelRef = useRef(1.2);
   const printRestoreZoomRef = useRef(1);
   const importFileRef = useRef(null);
   const loginRecordedRef = useRef(false);
