@@ -227,6 +227,8 @@ const getOffsetMonth = (monthStr, offset) => {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
 };
 
+const getOrderAccountingMonth = (order) => order?.isCarryOver ? getOffsetMonth(order.targetMonth, 1) : order?.targetMonth;
+
 const getFiscalYearMonths = (monthStr) => {
   const [y, m] = monthStr.split('-');
   let year = Number(y);
@@ -517,10 +519,11 @@ const NewEntryForm = React.memo(({ salespersons, onSubmit, selectedStaffId, onSt
           <Field label={RENTAL_CATEGORIES.includes(data.category) ? '金額' : '金額(税抜)'}>
             {rentalWithBilling && (
               <div className="absolute right-1 -top-4 flex flex-row flex-nowrap bg-slate-100 rounded-lg p-0.5 border border-slate-200 shadow-sm z-10">
-                {['full', 'half'].map((type) => <button key={type} type="button" onClick={() => setData({ ...data, billingType: type })} className={`h-6 min-w-[44px] px-3 text-xs font-bold rounded leading-none whitespace-nowrap ${data.billingType === type ? 'bg-white text-blue-500 shadow-sm' : 'text-slate-600'}`}>{type === 'full' ? '月額' : '半月'}</button>)}
+                {['full', 'half', 'exchange'].map((type) => <button key={type} type="button" onClick={() => setData({ ...data, billingType: type })} className={`h-6 min-w-[44px] px-3 text-xs font-bold rounded leading-none whitespace-nowrap ${data.billingType === type ? 'bg-white text-blue-500 shadow-sm' : 'text-slate-600'}`}>{type === 'full' ? '月額' : type === 'half' ? '半月' : '別商品交換'}</button>)}
               </div>
             )}
             <input type="number" value={data.amount} onChange={(e) => setData({ ...data, amount: e.target.value })} placeholder="¥" className="field-input text-2xl" />
+            {rentalWithBilling && data.billingType === 'exchange' && <p className="mt-1 text-xs font-bold text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">別商品交換は、全額ではなく差額を入力してください。</p>}
           </Field>
           <Field label="状態"><select value={data.status} onChange={(e) => setData({ ...data, status: e.target.value })} className="field-input text-base">{getStatusesByCategory(data.category).map((s) => <option key={s}>{s}</option>)}</select></Field>
           {!OTHER_SALES_CATS.includes(data.category) && <Field label="区分"><select value={data.source} onChange={(e) => setData({ ...data, source: e.target.value })} className="field-input text-base">{sources.map((s) => <option key={s}>{s}</option>)}</select></Field>}
@@ -547,7 +550,8 @@ const OrderRow = React.memo(({ order, onUpdate, onDelete, staffName, showStaffNa
     if (order.billingType === billingType) return;
     const amount = Number(order.amount || 0);
     await onUpdate(order.id, 'billingType', billingType);
-    await onUpdate(order.id, 'amount', billingType === 'half' ? Math.floor(amount / 2) : amount * 2);
+    if (billingType === 'half' && order.billingType !== 'exchange') await onUpdate(order.id, 'amount', Math.floor(amount / 2));
+    if (billingType === 'full' && order.billingType === 'half') await onUpdate(order.id, 'amount', amount * 2);
   };
 
   return (
@@ -566,9 +570,13 @@ const OrderRow = React.memo(({ order, onUpdate, onDelete, staffName, showStaffNa
       <td className="py-1 px-2 w-[18%]"><AutoSaveInput value={order.careHomeName} saveId={order.id} saveField="careHomeName" placeholder="事業所名" onSave={onUpdate} className="w-full bg-transparent border-none outline-none text-xs text-slate-600 font-bold px-1 py-0.5 focus:bg-white focus:rounded" /></td>
       <td className="py-1 px-2 w-[12%] text-center">
         {RENTAL_CATEGORIES.includes(order.category) && order.category !== '特価ベッド' && (
-          <div className="flex items-center justify-center bg-slate-50 rounded-lg p-0.5 border border-slate-100">
-            <button onClick={() => changeBilling('full')} className={`px-3.5 py-1.5 text-sm font-bold rounded ${order.billingType !== 'half' ? 'bg-white text-blue-500 shadow-sm' : 'text-slate-600'}`}>月額</button>
-            <button onClick={() => changeBilling('half')} className={`px-3.5 py-1.5 text-sm font-bold rounded ${order.billingType === 'half' ? 'bg-white text-blue-500 shadow-sm' : 'text-slate-600'}`}>半月</button>
+          <div className="flex flex-col items-center gap-1">
+            <div className="flex items-center justify-center bg-slate-50 rounded-lg p-0.5 border border-slate-100">
+              <button onClick={() => changeBilling('full')} className={`px-2 py-1.5 text-xs font-bold rounded whitespace-nowrap ${order.billingType !== 'half' && order.billingType !== 'exchange' ? 'bg-white text-blue-500 shadow-sm' : 'text-slate-600'}`}>月額</button>
+              <button onClick={() => changeBilling('half')} className={`px-2 py-1.5 text-xs font-bold rounded whitespace-nowrap ${order.billingType === 'half' ? 'bg-white text-blue-500 shadow-sm' : 'text-slate-600'}`}>半月</button>
+              <button onClick={() => changeBilling('exchange')} className={`px-2 py-1.5 text-xs font-bold rounded whitespace-nowrap ${order.billingType === 'exchange' ? 'bg-white text-amber-600 shadow-sm' : 'text-slate-600'}`}>別商品交換</button>
+            </div>
+            {order.billingType === 'exchange' && <span className="text-[9px] font-bold text-amber-700 leading-none whitespace-nowrap">差額入力</span>}
           </div>
         )}
       </td>
@@ -1102,6 +1110,7 @@ const MainApp = ({ branchSetting }) => {
 
   const basePath = useMemo(() => ['artifacts', appId, 'public', 'data'], [appId]);
   const currentOrders = useMemo(() => orders.filter((o) => o.targetMonth === currentMonth), [orders, currentMonth]);
+  const currentAccountingOrders = useMemo(() => orders.filter((o) => getOrderAccountingMonth(o) === currentMonth), [orders, currentMonth]);
   const entryStaffOrders = useMemo(() => activeTab === 'new_entry' ? currentOrders.filter((o) => Number(o.salespersonId) === Number(entryStaffId)) : [], [activeTab, currentOrders, entryStaffId]);
   const listOrders = useMemo(() => {
     if (activeTab !== 'list') return [];
@@ -1254,12 +1263,12 @@ const MainApp = ({ branchSetting }) => {
   }, []);
 
   const branchSummary = useMemo(() => {
-    const targetOrders = branchTotalSourceFilter === 'すべて' ? currentOrders : currentOrders.filter((o) => o.source === branchTotalSourceFilter);
+    const targetOrders = branchTotalSourceFilter === 'すべて' ? currentAccountingOrders : currentAccountingOrders.filter((o) => o.source === branchTotalSourceFilter);
     return summarize(targetOrders);
-  }, [branchTotalSourceFilter, currentOrders, summarize]);
+  }, [branchTotalSourceFilter, currentAccountingOrders, summarize]);
 
   const staffSummary = useCallback((sourceFilter = 'すべて') => {
-    const targetOrders = sourceFilter === 'すべて' ? currentOrders : currentOrders.filter((o) => o.source === sourceFilter);
+    const targetOrders = sourceFilter === 'すべて' ? currentAccountingOrders : currentAccountingOrders.filter((o) => o.source === sourceFilter);
     const staffStats = {};
     salespersons.forEach((s) => {
       staffStats[s.id] = {
@@ -1288,7 +1297,7 @@ const MainApp = ({ branchSetting }) => {
       }
     }
     return salespersons.map((s) => ({ ...s, current: staffStats[s.id] }));
-  }, [currentOrders, salespersons]);
+  }, [currentAccountingOrders, salespersons]);
 
   const branchTotalPersonDetailedSummary = useMemo(() => staffSummary(branchTotalSourceFilter), [branchTotalSourceFilter, staffSummary]);
   const personDetailedSummary = useMemo(() => staffSummary('すべて'), [staffSummary]);
@@ -1312,9 +1321,10 @@ const MainApp = ({ branchSetting }) => {
       const cat = TREND_CAT_KEY[o.category];
       if (!cat) continue;
       const value = cat.isAmt ? Number(o.amount || 0) : 1;
-      const index = monthToIndex[o.targetMonth];
+      const accountingMonth = getOrderAccountingMonth(o);
+      const index = monthToIndex[accountingMonth];
       if (index !== undefined) addToSeries(series, index, cat.key, value, o.source);
-      const previousIndex = previousMonthToIndex[o.targetMonth];
+      const previousIndex = previousMonthToIndex[accountingMonth];
       if (previousIndex !== undefined) addToSeries(previousSeries, previousIndex, cat.key, value, o.source);
     }
     return { months, series, previousSeries };
@@ -1322,7 +1332,7 @@ const MainApp = ({ branchSetting }) => {
 
   const rankingInsights = useMemo(() => {
     const months = new Set(getRankingPeriodMonths(currentMonth, rankingPeriod));
-    const periodOrders = orders.filter((o) => months.has(o.targetMonth));
+    const periodOrders = orders.filter((o) => months.has(getOrderAccountingMonth(o)));
     const filteredOrders = rankingStaffId === 'all' ? periodOrders : periodOrders.filter((o) => Number(o.salespersonId) === Number(rankingStaffId));
     const selectedStaffName = rankingStaffId === 'all' ? null : salespersons.find((staff) => Number(staff.id) === Number(rankingStaffId))?.name;
     const sourceTotal = (targetOrders) => {
@@ -1759,14 +1769,14 @@ const HeadOfficeApp = () => {
 
   const branchAppIdSet = useMemo(() => new Set(branches.map((branch) => branch.appId)), [branches]);
   const visibleBranchData = useMemo(() => Object.values(branchData).filter((item) => item?.branch && branchAppIdSet.has(item.branch.appId) && (selectedBranch === 'all' || item.branch.appId === selectedBranch)), [branchAppIdSet, branchData, selectedBranch]);
-  const currentOrders = useMemo(() => visibleBranchData.flatMap((item) => (item.orders || []).filter((order) => order.targetMonth === currentMonth).map((order) => ({ ...order, branchName: item.branch.branchName, appId: item.branch.appId }))), [currentMonth, visibleBranchData]);
+  const currentOrders = useMemo(() => visibleBranchData.flatMap((item) => (item.orders || []).filter((order) => getOrderAccountingMonth(order) === currentMonth).map((order) => ({ ...order, branchName: item.branch.branchName, appId: item.branch.appId }))), [currentMonth, visibleBranchData]);
   const allSummary = useMemo(() => {
     const summary = createEmptySummary();
     currentOrders.forEach((order) => addOrderToSummary(summary, order));
     return summary;
   }, [currentOrders]);
   const branchRows = useMemo(() => visibleBranchData.map((item) => {
-    const orders = (item.orders || []).filter((order) => order.targetMonth === currentMonth);
+    const orders = (item.orders || []).filter((order) => getOrderAccountingMonth(order) === currentMonth);
     const summary = createEmptySummary();
     orders.forEach((order) => addOrderToSummary(summary, order));
     return { ...item.branch, summary, orderCount: orders.length };
@@ -1775,7 +1785,7 @@ const HeadOfficeApp = () => {
     const rows = [];
     visibleBranchData.forEach((item) => {
       const staff = item.staff || [];
-      const orders = (item.orders || []).filter((order) => order.targetMonth === currentMonth);
+      const orders = (item.orders || []).filter((order) => getOrderAccountingMonth(order) === currentMonth);
       staff.forEach((person) => {
         const summary = createEmptySummary();
         orders.filter((order) => Number(order.salespersonId) === Number(person.id)).forEach((order) => addOrderToSummary(summary, order));
@@ -1794,7 +1804,7 @@ const HeadOfficeApp = () => {
     const rows = [];
     visibleBranchData.forEach((item) => {
       const staff = item.staff || [];
-      const orders = (item.orders || []).filter((order) => months.has(order.targetMonth));
+      const orders = (item.orders || []).filter((order) => months.has(getOrderAccountingMonth(order)));
       staff.forEach((person) => {
         const staffKey = `${item.branch.appId}:${person.id}`;
         if (headRankingStaffId !== 'all' && headRankingStaffId !== staffKey) return;
