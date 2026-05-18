@@ -884,15 +884,15 @@ const PdfStaffTable = ({ people }) => (
 const PDFTemplate = React.forwardRef(({ branchName, currentMonth, branchSummary, branchTotalPersonDetailedSummary }, ref) => {
   const staffPages = chunkArray(branchTotalPersonDetailedSummary, 8);
   return (
-  <div ref={ref} style={{ width: '210mm', background: 'white', position: 'fixed', left: '-10000px', top: '0', color: '#0f172a', zoom: 1, transform: 'none', letterSpacing: 0 }}>
-    <div className="pdf-page p-[14mm]" style={{ width: '210mm', height: '297mm', display: 'flex', flexDirection: 'column', backgroundColor: '#fff', letterSpacing: 0, fontKerning: 'normal', overflow: 'hidden' }}>
+  <div ref={ref} style={{ width: '210mm', background: 'white', position: 'fixed', left: '-10000px', top: '0', color: '#0f172a', zoom: 1, transform: 'none', letterSpacing: 0, boxSizing: 'border-box' }}>
+    <div className="pdf-page p-[14mm]" style={{ width: '210mm', height: '297mm', boxSizing: 'border-box', display: 'flex', flexDirection: 'column', backgroundColor: '#fff', letterSpacing: 0, fontKerning: 'normal', overflow: 'hidden' }}>
       <PdfHeader branchName={branchName} currentMonth={currentMonth} />
       <div className="grid grid-cols-2 gap-5 mb-8">{statRows(branchSummary).slice(0, 4).map((item) => <PdfBranchStatCard key={item.label} item={item} />)}</div>
       <div className="border-2 border-slate-900 rounded-xl pt-1 pb-9 px-6 mb-8 bg-slate-50"><div className="text-sm font-bold text-slate-900 uppercase tracking-widest mb-1">受注残合計 (レンタル・特価見込総額)</div><div className="text-5xl font-bold text-slate-900">¥{yenK(branchSummary.rentalBacklogTotalAmt)}千円</div></div>
       <div className="mt-auto pt-5 text-right text-[10px] text-slate-900 font-bold border-t border-slate-200">太陽シルバーサービス株式会社 {branchName} 進捗管理報告</div>
     </div>
     {staffPages.map((people, index) => (
-      <div key={`staff-page-${index}`} className="pdf-page p-[10mm]" style={{ width: '210mm', height: '297mm', display: 'flex', flexDirection: 'column', backgroundColor: '#fff', letterSpacing: 0, fontKerning: 'normal', overflow: 'hidden' }}>
+      <div key={`staff-page-${index}`} className="pdf-page p-[10mm]" style={{ width: '210mm', height: '297mm', boxSizing: 'border-box', display: 'flex', flexDirection: 'column', backgroundColor: '#fff', letterSpacing: 0, fontKerning: 'normal', overflow: 'hidden' }}>
         <PdfHeader branchName={branchName} currentMonth={currentMonth} compact />
         <div className="flex justify-between items-center mb-4">
           <h2 className="text-xl font-bold border-l-8 border-slate-800 pl-4">所員別 進捗ステータス詳細</h2>
@@ -911,6 +911,7 @@ const MainApp = ({ branchSetting }) => {
   const BRANCH_NAME = branchSetting.name;
   const BRANCH_ACCESS_KEY = branchSetting.accessKey || 'legacy';
   const appId = typeof __app_id !== 'undefined' ? __app_id : `solar-silver-${BRANCH_ID}-${BRANCH_ACCESS_KEY}`;
+  const masterConfirmKey = `solar_silver_master_confirmed_${appId}`;
   const [user, setUser] = useState(null);
   const [authInitialized, setAuthInitialized] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
@@ -935,6 +936,7 @@ const MainApp = ({ branchSetting }) => {
   const [listSourceFilter, setListSourceFilter] = useState('すべて');
   const [notification, setNotification] = useState(null);
   const [newStaffName, setNewStaffName] = useState('');
+  const [isMasterConfirmed, setIsMasterConfirmed] = useState(() => localStorage.getItem(masterConfirmKey) === 'true');
   const [selectedCategoryFilter, setSelectedCategoryFilter] = useState('すべて');
   const [showBranchPreview, setShowBranchPreview] = useState(false);
   const [zoomLevel, setZoomLevel] = useState(1.2);
@@ -948,8 +950,24 @@ const MainApp = ({ branchSetting }) => {
   const handleResetBranchSetting = useCallback(() => {
     if (!window.confirm('営業所設定を変更しますか？この端末の保存済み設定だけを削除します。')) return;
     localStorage.removeItem('solar_silver_branch_setting');
+    localStorage.removeItem(masterConfirmKey);
     window.location.reload();
-  }, []);
+  }, [masterConfirmKey]);
+
+  useEffect(() => {
+    setIsMasterConfirmed(localStorage.getItem(masterConfirmKey) === 'true');
+  }, [masterConfirmKey]);
+
+  useEffect(() => {
+    if (!isLoading && salespersons.length === 0) setActiveTab('master');
+  }, [isLoading, salespersons.length]);
+
+  const handleConfirmMasterSettings = useCallback(() => {
+    if (!salespersons.length) return showMessage('先に担当名を1名以上追加してください');
+    localStorage.setItem(masterConfirmKey, 'true');
+    setIsMasterConfirmed(true);
+    showMessage('この端末のマスタ設定を確定しました');
+  }, [masterConfirmKey, salespersons.length, showMessage]);
 
   useEffect(() => {
     const style = document.createElement('style');
@@ -958,15 +976,18 @@ const MainApp = ({ branchSetting }) => {
       .field-input:focus{background:white;border-color:#60a5fa}
       input[type="number"]::-webkit-outer-spin-button,input[type="number"]::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
       input[type="number"]{-moz-appearance:textfield;appearance:textfield}
+      .pdf-page{box-sizing:border-box;width:210mm!important;max-width:210mm!important;height:297mm!important;page-break-after:always;break-after:page;overflow:hidden}
+      .pdf-page:last-child{page-break-after:auto;break-after:auto}
       .pdf-page,.pdf-page *{letter-spacing:0;font-kerning:normal;text-rendering:geometricPrecision}
       .pdf-page table{table-layout:fixed;border-collapse:collapse}
       html.is-exporting-pdf #app-root,html.is-printing #app-root{zoom:1!important;transform:none!important;transform-origin:top left!important}
       @media print{
-        @page{size:auto;margin:10mm}
+        @page{size:A4 portrait;margin:0}
         html,body,#root,#app-root{zoom:1!important;transform:none!important;transform-origin:top left!important;width:auto!important;min-width:0!important;letter-spacing:0!important;-webkit-text-size-adjust:100%!important;text-size-adjust:100%!important}
         *{letter-spacing:0!important;text-shadow:none!important}
         body{background:white!important;-webkit-print-color-adjust:exact;print-color-adjust:exact}
         .print\\:hidden,.print-hidden{display:none!important}
+        .pdf-page{box-sizing:border-box!important;width:210mm!important;max-width:210mm!important;height:297mm!important;margin:0!important;overflow:hidden!important}
         table{table-layout:fixed!important;border-collapse:collapse!important}
         th,td{overflow-wrap:anywhere}
         .modal-overlay{position:absolute!important;background:white!important;z-index:9999!important;padding:0!important;margin:0!important;top:0!important;left:0!important;width:100vw!important;min-height:100vh!important}
@@ -1470,7 +1491,7 @@ const MainApp = ({ branchSetting }) => {
         {activeTab === 'trend' && <section className="space-y-6"><div className="flex justify-between items-end"><SectionHeader icon={LineChart} title="今年年度（4月〜3月）の実績推移" subtitle="Fiscal Year Trend" /><AlertNote /></div><RankingInsightsPanel insights={rankingInsights} compact salespersons={salespersons} period={rankingPeriod} setPeriod={setRankingPeriod} staffId={rankingStaffId} setStaffId={setRankingStaffId} kind={rankingKind} setKind={setRankingKind} /><div className="flex bg-white p-2.5 rounded-2xl border border-slate-200 shadow-md gap-3 overflow-x-auto"><button onClick={() => setTrendStaffId('overall')} className={`px-8 py-3 rounded-xl font-bold text-lg whitespace-nowrap ${trendStaffId === 'overall' ? 'bg-slate-700 text-white shadow-lg' : 'text-slate-600 hover:bg-slate-50'}`}>{BRANCH_NAME} 全体</button>{salespersons.map((staff) => <button key={staff.id} onClick={() => setTrendStaffId(staff.id)} className={`px-8 py-3 rounded-xl font-bold text-lg whitespace-nowrap ${trendStaffId === staff.id ? 'bg-blue-500 text-white shadow-lg' : 'text-slate-600 hover:bg-slate-50'}`}>{staff.name}</button>)}</div><div className="grid grid-cols-1 md:grid-cols-2 gap-6"><StackedBarChart data={trendData.series.rentalNew} previousData={trendData.previousSeries.rentalNew} labels={trendData.months} currentMonth={currentMonth} title="レンタル新規 (件)" unit="件" yAxisMax={trendStaffId === 'overall' ? chartConfig.overall.rentalNew : chartConfig.personal.rentalNew} /><StackedBarChart data={trendData.series.bed} previousData={trendData.previousSeries.bed} labels={trendData.months} currentMonth={currentMonth} title="特価台数 (台)" unit="台" yAxisMax={trendStaffId === 'overall' ? chartConfig.overall.bed : chartConfig.personal.bed} /><StackedBarChart data={trendData.series.renovation} previousData={trendData.previousSeries.renovation} labels={trendData.months} currentMonth={currentMonth} title="住宅改修 (金額)" unit="円" isAmount yAxisMax={trendStaffId === 'overall' ? chartConfig.overall.renovation : chartConfig.personal.renovation} /><StackedBarChart data={trendData.series.equipment} previousData={trendData.previousSeries.equipment} labels={trendData.months} currentMonth={currentMonth} title="特定福祉用具販売 (金額)" unit="円" isAmount yAxisMax={trendStaffId === 'overall' ? chartConfig.overall.equipment : chartConfig.personal.equipment} /></div></section>}
         {activeTab === 'list' && <section className="space-y-4"><ListToolbar currentYear={currentYear} currentMonthNum={currentMonthNum} currentMonth={currentMonth} setCurrentMonth={setCurrentMonth} /><div className="flex flex-col md:flex-row gap-4 items-center justify-between"><StaffFilter salespersons={salespersons} value={listStaffId} setValue={(v) => { setListStaffId(v); setSelectedCategoryFilter('すべて'); }} overallLabel={`${BRANCH_NAME} 全体`} /><button onClick={handleCarryOverChecked} className="w-full md:w-auto text-white bg-blue-500 px-6 py-2.5 rounded-xl font-bold text-sm flex items-center justify-center gap-2 shadow-md hover:bg-blue-600"><RotateCcw size={18} />次月へ移行</button></div><BranchSourceFilter currentFilter={listSourceFilter} onChange={setListSourceFilter} prefix="list" /><CategoryFilter items={listOrders} selected={selectedCategoryFilter} onSelect={setSelectedCategoryFilter} /><OrderTable items={listOrders} onUpdate={updateOrderField} onDelete={deleteOrder} salespersons={salespersons} showStaffName={listStaffId === 'all'} selectedCategory={selectedCategoryFilter} onAddCategory={handleAddListRow} /></section>}
         {activeTab === 'compliance' && <Usage />}
-        {activeTab === 'master' && <section className="space-y-6"><SectionHeader icon={Settings} title={`${BRANCH_NAME} マスタ設定`} subtitle="Master Settings" /><div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">{salespersons.filter((s) => s?.id).map((s, idx) => <StaffMemberItem key={s.id} staff={s} isFirst={idx === 0} isLast={idx === salespersons.length - 1} onMove={handleMoveStaff} onUpdate={updateStaffField} onDelete={async (id) => { await deleteDoc(doc(db, ...basePath, 'staff', String(id))); showMessage('スタッフを削除しました'); }} />)}<AddStaffCard value={newStaffName} setValue={setNewStaffName} onAdd={async () => { if (!newStaffName) return; const newId = Date.now(); await setDoc(doc(db, ...basePath, 'staff', String(newId)), { id: newId, name: newStaffName, budgetRenovation: 0, targetRenovationCnt: 0, budgetEquipment: 0, targetEquipmentCnt: 0, targetRentalNew: 0, targetBedNew: 0, orderIndex: salespersons.length }); setNewStaffName(''); showMessage('追加しました'); }} /></div><ChartConfigCard chartConfig={chartConfig} onSave={handleUpdateChartConfig} /><DataPortabilityCard onExport={handleExportData} onImportClick={() => importFileRef.current?.click()} importRef={importFileRef} onImport={handleImportData} loginHistory={loginHistory} /></section>}
+        {activeTab === 'master' && <section className="space-y-6"><SectionHeader icon={Settings} title={`${BRANCH_NAME} マスタ設定`} subtitle="Master Settings" /><MasterSetupStatusCard isConfirmed={isMasterConfirmed} staffCount={salespersons.length} onConfirm={handleConfirmMasterSettings} /><div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">{salespersons.filter((s) => s?.id).map((s, idx) => <StaffMemberItem key={s.id} staff={s} isFirst={idx === 0} isLast={idx === salespersons.length - 1} onMove={handleMoveStaff} onUpdate={updateStaffField} onDelete={async (id) => { await deleteDoc(doc(db, ...basePath, 'staff', String(id))); showMessage('スタッフを削除しました'); }} />)}<AddStaffCard value={newStaffName} setValue={setNewStaffName} onAdd={async () => { if (!newStaffName) return; const newId = Date.now(); await setDoc(doc(db, ...basePath, 'staff', String(newId)), { id: newId, name: newStaffName, budgetRenovation: 0, targetRenovationCnt: 0, budgetEquipment: 0, targetEquipmentCnt: 0, targetRentalNew: 0, targetBedNew: 0, orderIndex: salespersons.length }); setNewStaffName(''); showMessage('追加しました'); }} /></div><ChartConfigCard chartConfig={chartConfig} onSave={handleUpdateChartConfig} /><DataPortabilityCard onExport={handleExportData} onImportClick={() => importFileRef.current?.click()} importRef={importFileRef} onImport={handleImportData} loginHistory={loginHistory} /></section>}
       </main>
       <div className="fixed bottom-4 right-6 text-[10px] text-slate-500 font-bold opacity-60 pointer-events-none z-50 print:hidden">太陽シルバーサービス㈱ {BRANCH_NAME}</div>
     </div>
@@ -1480,6 +1501,22 @@ const MainApp = ({ branchSetting }) => {
 const AlertNote = () => <div className="hidden sm:flex items-center gap-2 mb-4 bg-orange-50 px-4 py-2 rounded-lg border border-orange-100"><AlertCircle size={16} className="text-orange-500" /><span className="text-xs font-bold text-orange-600">※実績値はステータスが「確定済」または「売上済」になった案件のみ反映されます。</span></div>;
 
 const StaffFilter = ({ salespersons, value, setValue, overallLabel }) => <div className="flex bg-white p-2 rounded-xl border border-slate-100 shadow-sm gap-2 overflow-x-auto w-full md:w-auto"><button onClick={() => setValue('all')} className={`px-6 py-2 rounded-lg font-bold text-sm whitespace-nowrap ${value === 'all' ? 'bg-slate-700 text-white shadow' : 'text-slate-700 hover:bg-slate-50'}`}>{overallLabel}</button>{salespersons.map((staff) => <button key={staff.id} onClick={() => setValue(staff.id)} className={`px-6 py-2 rounded-lg font-bold text-sm whitespace-nowrap ${value === staff.id ? 'bg-blue-500 text-white shadow' : 'text-slate-600 hover:bg-slate-50'}`}>{staff.name}</button>)}</div>;
+
+const MasterSetupStatusCard = ({ isConfirmed, staffCount, onConfirm }) => (
+  <Card className={`p-5 border ${isConfirmed ? 'border-emerald-200 bg-emerald-50/50' : 'border-blue-200 bg-blue-50/50'} shadow-sm`}>
+    <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+      <div className="space-y-1">
+        <div className="flex items-center gap-2">
+          <Settings size={20} className={isConfirmed ? 'text-emerald-600' : 'text-blue-600'} />
+          <h3 className="text-lg font-bold text-slate-900">担当者マスタ</h3>
+          <span className={`text-xs font-bold px-2.5 py-1 rounded-full ${isConfirmed ? 'bg-emerald-600 text-white' : 'bg-blue-600 text-white'}`}>{isConfirmed ? 'この端末で設定確定済み' : '未確定'}</span>
+        </div>
+        <p className="text-sm font-bold text-slate-700 leading-relaxed">担当名・予算・目標を入力し、最後に確定してください。一度この端末で確定すると、次回以降は同じマスタ設定として扱います。</p>
+      </div>
+      <button onClick={onConfirm} disabled={!staffCount} className="shrink-0 bg-slate-800 text-white px-6 py-3 rounded-xl font-bold text-sm shadow-md hover:bg-slate-700 disabled:opacity-40 disabled:cursor-not-allowed">マスタ設定を確定</button>
+    </div>
+  </Card>
+);
 
 const CategoryFilter = ({ items, selected, onSelect }) => <div className="flex flex-wrap gap-2 bg-slate-50 p-2 rounded-xl items-center shadow-inner"><span className="text-xs font-bold text-slate-700 whitespace-nowrap bg-white px-2 py-1 rounded shadow-sm border border-slate-200">カテゴリ</span><button onClick={() => onSelect('すべて')} className={`text-xs font-bold px-4 py-1.5 rounded-lg shadow-sm ${selected === 'すべて' ? 'bg-blue-500 text-white' : 'bg-white text-slate-700 border border-slate-200'}`}>すべて表示</button>{allCategories.map((cat) => items.some((o) => o.category === cat) ? <button key={cat} onClick={() => onSelect(cat)} className={`text-xs font-bold px-4 py-1.5 rounded-lg shadow-sm ${selected === cat ? 'bg-blue-500 text-white' : 'bg-white text-slate-700 border border-slate-200'}`}>{cat === '特定福祉用具販売' ? '特定福祉用具' : cat}</button> : null)}</div>;
 
