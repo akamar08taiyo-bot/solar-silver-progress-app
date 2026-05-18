@@ -930,7 +930,6 @@ const MainApp = ({ branchSetting }) => {
   const [trendStaffId, setTrendStaffId] = useState('overall');
   const [rankingPeriod, setRankingPeriod] = useState('fiscalYear');
   const [rankingStaffId, setRankingStaffId] = useState('all');
-  const [rankingKind, setRankingKind] = useState('office');
   const [branchTotalStaffId, setBranchTotalStaffId] = useState('all');
   const [branchTotalSourceFilter, setBranchTotalSourceFilter] = useState('すべて');
   const [listSourceFilter, setListSourceFilter] = useState('すべて');
@@ -1392,14 +1391,10 @@ const MainApp = ({ branchSetting }) => {
         .slice(0, 8);
       return { title: metric.title, rows, mode: metric.mode, sourceCount: metricSourceCount };
     });
-    const pickGroups = (targetOrders) => {
-      if (rankingKind === 'newRental') return { label: '新規ランキング', groups: buildGroups(targetOrders, 'office').filter((group) => group.title.includes('新規レンタル')) };
-      return { label: '事業所ランキング', groups: buildGroups(targetOrders, 'office') };
-    };
+    const pickGroups = (targetOrders) => ({ label: '事業所ランキング', groups: buildGroups(targetOrders, 'office') });
     const branchGroups = pickGroups(filteredOrders);
     return {
       periodLabel: getRankingPeriodLabel(rankingPeriod),
-      rankingKind,
       branch: { title: `${BRANCH_NAME} ${selectedStaffName ? selectedStaffName : '営業所合計'}`, sourceCount: sourceTotal(filteredOrders), rankingLabel: branchGroups.label, groups: branchGroups.groups },
       personal: salespersons.filter((staff) => staff?.id).map((staff) => {
         const staffOrders = periodOrders.filter((o) => Number(o.salespersonId) === Number(staff.id));
@@ -1407,7 +1402,7 @@ const MainApp = ({ branchSetting }) => {
         return { id: staff.id, name: staff.name, sourceCount: sourceTotal(staffOrders), rankingLabel: staffGroups.label, groups: staffGroups.groups };
       })
     };
-  }, [BRANCH_NAME, currentMonth, orders, rankingKind, rankingPeriod, rankingStaffId, salespersons]);
+  }, [BRANCH_NAME, currentMonth, orders, rankingPeriod, rankingStaffId, salespersons]);
 
   const handleExportPDF = useCallback(async () => {
     if (isGeneratingPDF) return;
@@ -1487,8 +1482,8 @@ const MainApp = ({ branchSetting }) => {
           <Card noPadding className="border border-slate-200 shadow-lg rounded-2xl overflow-hidden"><div className="bg-blue-500 text-white px-5 py-3 font-bold text-base uppercase tracking-widest flex items-center gap-3"><TrendingUp size={18} />進捗ステータス詳細</div><ProgressTable data={branchTotalPersonDetailedSummary} staffIdFilter={branchTotalStaffId} /></Card>
           {showBranchPreview && <PreviewModal onClose={() => setShowBranchPreview(false)} onExport={handleExportPDF} isGeneratingPDF={isGeneratingPDF} branchSummary={branchSummary} data={branchTotalPersonDetailedSummary} branchTotalSourceFilter={branchTotalSourceFilter} setBranchTotalSourceFilter={setBranchTotalSourceFilter} />}
         </section>}
-        {activeTab === 'summary' && <section className="space-y-6"><div className="flex justify-between items-end"><SectionHeader icon={BarChart3} title={`${BRANCH_NAME} 目標進捗`} subtitle="Monthly Target" /><AlertNote /></div><RankingInsightsPanel insights={rankingInsights} salespersons={salespersons} period={rankingPeriod} setPeriod={setRankingPeriod} staffId={rankingStaffId} setStaffId={setRankingStaffId} kind={rankingKind} setKind={setRankingKind} /><div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">{personDetailedSummary.map((data) => <ProgressCard key={data.id} data={data} />)}</div></section>}
-        {activeTab === 'trend' && <section className="space-y-6"><div className="flex justify-between items-end"><SectionHeader icon={LineChart} title="今年年度（4月〜3月）の実績推移" subtitle="Fiscal Year Trend" /><AlertNote /></div><RankingInsightsPanel insights={rankingInsights} compact salespersons={salespersons} period={rankingPeriod} setPeriod={setRankingPeriod} staffId={rankingStaffId} setStaffId={setRankingStaffId} kind={rankingKind} setKind={setRankingKind} /><div className="flex bg-white p-2.5 rounded-2xl border border-slate-200 shadow-md gap-3 overflow-x-auto"><button onClick={() => setTrendStaffId('overall')} className={`px-8 py-3 rounded-xl font-bold text-lg whitespace-nowrap ${trendStaffId === 'overall' ? 'bg-slate-700 text-white shadow-lg' : 'text-slate-600 hover:bg-slate-50'}`}>{BRANCH_NAME} 全体</button>{salespersons.map((staff) => <button key={staff.id} onClick={() => setTrendStaffId(staff.id)} className={`px-8 py-3 rounded-xl font-bold text-lg whitespace-nowrap ${trendStaffId === staff.id ? 'bg-blue-500 text-white shadow-lg' : 'text-slate-600 hover:bg-slate-50'}`}>{staff.name}</button>)}</div><div className="grid grid-cols-1 md:grid-cols-2 gap-6"><StackedBarChart data={trendData.series.rentalNew} previousData={trendData.previousSeries.rentalNew} labels={trendData.months} currentMonth={currentMonth} title="レンタル新規 (件)" unit="件" yAxisMax={trendStaffId === 'overall' ? chartConfig.overall.rentalNew : chartConfig.personal.rentalNew} /><StackedBarChart data={trendData.series.bed} previousData={trendData.previousSeries.bed} labels={trendData.months} currentMonth={currentMonth} title="特価台数 (台)" unit="台" yAxisMax={trendStaffId === 'overall' ? chartConfig.overall.bed : chartConfig.personal.bed} /><StackedBarChart data={trendData.series.renovation} previousData={trendData.previousSeries.renovation} labels={trendData.months} currentMonth={currentMonth} title="住宅改修 (金額)" unit="円" isAmount yAxisMax={trendStaffId === 'overall' ? chartConfig.overall.renovation : chartConfig.personal.renovation} /><StackedBarChart data={trendData.series.equipment} previousData={trendData.previousSeries.equipment} labels={trendData.months} currentMonth={currentMonth} title="特定福祉用具販売 (金額)" unit="円" isAmount yAxisMax={trendStaffId === 'overall' ? chartConfig.overall.equipment : chartConfig.personal.equipment} /></div></section>}
+        {activeTab === 'summary' && <section className="space-y-6"><div className="flex justify-between items-end"><SectionHeader icon={BarChart3} title={`${BRANCH_NAME} 目標進捗`} subtitle="Monthly Target" /><AlertNote /></div><RankingInsightsPanel insights={rankingInsights} salespersons={salespersons} period={rankingPeriod} setPeriod={setRankingPeriod} staffId={rankingStaffId} setStaffId={setRankingStaffId} /><div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">{personDetailedSummary.map((data) => <ProgressCard key={data.id} data={data} />)}</div></section>}
+        {activeTab === 'trend' && <section className="space-y-6"><div className="flex justify-between items-end"><SectionHeader icon={LineChart} title="今年年度（4月〜3月）の実績推移" subtitle="Fiscal Year Trend" /><AlertNote /></div><RankingInsightsPanel insights={rankingInsights} compact salespersons={salespersons} period={rankingPeriod} setPeriod={setRankingPeriod} staffId={rankingStaffId} setStaffId={setRankingStaffId} /><div className="flex bg-white p-2.5 rounded-2xl border border-slate-200 shadow-md gap-3 overflow-x-auto"><button onClick={() => setTrendStaffId('overall')} className={`px-8 py-3 rounded-xl font-bold text-lg whitespace-nowrap ${trendStaffId === 'overall' ? 'bg-slate-700 text-white shadow-lg' : 'text-slate-600 hover:bg-slate-50'}`}>{BRANCH_NAME} 全体</button>{salespersons.map((staff) => <button key={staff.id} onClick={() => setTrendStaffId(staff.id)} className={`px-8 py-3 rounded-xl font-bold text-lg whitespace-nowrap ${trendStaffId === staff.id ? 'bg-blue-500 text-white shadow-lg' : 'text-slate-600 hover:bg-slate-50'}`}>{staff.name}</button>)}</div><div className="grid grid-cols-1 md:grid-cols-2 gap-6"><StackedBarChart data={trendData.series.rentalNew} previousData={trendData.previousSeries.rentalNew} labels={trendData.months} currentMonth={currentMonth} title="レンタル新規 (件)" unit="件" yAxisMax={trendStaffId === 'overall' ? chartConfig.overall.rentalNew : chartConfig.personal.rentalNew} /><StackedBarChart data={trendData.series.bed} previousData={trendData.previousSeries.bed} labels={trendData.months} currentMonth={currentMonth} title="特価台数 (台)" unit="台" yAxisMax={trendStaffId === 'overall' ? chartConfig.overall.bed : chartConfig.personal.bed} /><StackedBarChart data={trendData.series.renovation} previousData={trendData.previousSeries.renovation} labels={trendData.months} currentMonth={currentMonth} title="住宅改修 (金額)" unit="円" isAmount yAxisMax={trendStaffId === 'overall' ? chartConfig.overall.renovation : chartConfig.personal.renovation} /><StackedBarChart data={trendData.series.equipment} previousData={trendData.previousSeries.equipment} labels={trendData.months} currentMonth={currentMonth} title="特定福祉用具販売 (金額)" unit="円" isAmount yAxisMax={trendStaffId === 'overall' ? chartConfig.overall.equipment : chartConfig.personal.equipment} /></div></section>}
         {activeTab === 'list' && <section className="space-y-4"><ListToolbar currentYear={currentYear} currentMonthNum={currentMonthNum} currentMonth={currentMonth} setCurrentMonth={setCurrentMonth} /><div className="flex flex-col md:flex-row gap-4 items-center justify-between"><StaffFilter salespersons={salespersons} value={listStaffId} setValue={(v) => { setListStaffId(v); setSelectedCategoryFilter('すべて'); }} overallLabel={`${BRANCH_NAME} 全体`} /><button onClick={handleCarryOverChecked} className="w-full md:w-auto text-white bg-blue-500 px-6 py-2.5 rounded-xl font-bold text-sm flex items-center justify-center gap-2 shadow-md hover:bg-blue-600"><RotateCcw size={18} />次月へ移行</button></div><BranchSourceFilter currentFilter={listSourceFilter} onChange={setListSourceFilter} prefix="list" /><CategoryFilter items={listOrders} selected={selectedCategoryFilter} onSelect={setSelectedCategoryFilter} /><OrderTable items={listOrders} onUpdate={updateOrderField} onDelete={deleteOrder} salespersons={salespersons} showStaffName={listStaffId === 'all'} selectedCategory={selectedCategoryFilter} onAddCategory={handleAddListRow} /></section>}
         {activeTab === 'compliance' && <Usage />}
         {activeTab === 'master' && <section className="space-y-6"><SectionHeader icon={Settings} title={`${BRANCH_NAME} マスタ設定`} subtitle="Master Settings" /><MasterSetupStatusCard isConfirmed={isMasterConfirmed} staffCount={salespersons.length} onConfirm={handleConfirmMasterSettings} /><div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">{salespersons.filter((s) => s?.id).map((s, idx) => <StaffMemberItem key={s.id} staff={s} isFirst={idx === 0} isLast={idx === salespersons.length - 1} onMove={handleMoveStaff} onUpdate={updateStaffField} onDelete={async (id) => { await deleteDoc(doc(db, ...basePath, 'staff', String(id))); showMessage('スタッフを削除しました'); }} />)}<AddStaffCard value={newStaffName} setValue={setNewStaffName} onAdd={async () => { if (!newStaffName) return; const newId = Date.now(); await setDoc(doc(db, ...basePath, 'staff', String(newId)), { id: newId, name: newStaffName, budgetRenovation: 0, targetRenovationCnt: 0, budgetEquipment: 0, targetEquipmentCnt: 0, targetRentalNew: 0, targetBedNew: 0, orderIndex: salespersons.length }); setNewStaffName(''); showMessage('追加しました'); }} /></div><ChartConfigCard chartConfig={chartConfig} onSave={handleUpdateChartConfig} /><DataPortabilityCard onExport={handleExportData} onImportClick={() => importFileRef.current?.click()} importRef={importFileRef} onImport={handleImportData} loginHistory={loginHistory} /></section>}
@@ -1579,7 +1574,50 @@ const RankingControlSelect = ({ value, onChange, children, label }) => (
   </label>
 );
 
-const RankingInsightsPanel = ({ insights, compact = false, salespersons = [], period = 'fiscalYear', setPeriod = () => {}, staffId = 'all', setStaffId = () => {}, kind = 'office', setKind = () => {} }) => (
+const SourceRatioPie = ({ title, sourceCount }) => {
+  const houkatsu = Number(sourceCount?.['包括'] || 0);
+  const kyotaku = Number(sourceCount?.['居宅'] || 0);
+  const renkei = Number(sourceCount?.['退院/連携室'] || 0);
+  const total = houkatsu + kyotaku + renkei;
+  const houkatsuDeg = total ? (houkatsu / total) * 360 : 0;
+  const kyotakuDeg = total ? (kyotaku / total) * 360 : 0;
+  const chartStyle = {
+    background: total
+      ? `conic-gradient(#3b82f6 0deg ${houkatsuDeg}deg, #10b981 ${houkatsuDeg}deg ${houkatsuDeg + kyotakuDeg}deg, #64748b ${houkatsuDeg + kyotakuDeg}deg 360deg)`
+      : '#e2e8f0'
+  };
+  const pct = (value) => total ? `${Math.round((value / total) * 100)}%` : '0%';
+  return (
+    <div className="bg-white border border-slate-100 rounded-xl p-4 flex items-center gap-4 min-w-0">
+      <div className="w-24 h-24 rounded-full shrink-0 shadow-inner border border-slate-100" style={chartStyle} />
+      <div className="min-w-0 flex-1">
+        <div className="font-extrabold text-slate-900 text-sm mb-2 truncate">{title}</div>
+        <div className="space-y-1 text-xs font-bold text-slate-700">
+          <div className="flex justify-between gap-2"><span className="text-blue-600">包括</span><span>{houkatsu}件 / {pct(houkatsu)}</span></div>
+          <div className="flex justify-between gap-2"><span className="text-emerald-600">居宅</span><span>{kyotaku}件 / {pct(kyotaku)}</span></div>
+          <div className="flex justify-between gap-2"><span className="text-slate-600">連携室</span><span>{renkei}件 / {pct(renkei)}</span></div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const SourceRatioPanel = ({ title, groups, compact = false }) => (
+  <details className="border border-slate-200 rounded-2xl bg-slate-50/60 overflow-hidden">
+    <summary className="cursor-pointer list-none px-4 py-3 flex items-center justify-between gap-3 bg-white hover:bg-slate-50">
+      <div>
+        <h4 className="text-base font-extrabold text-slate-900">包括・居宅・連携室割合</h4>
+        <p className="text-xs font-bold text-slate-500">{title}の各項目ごとの依頼割合を円グラフで確認できます</p>
+      </div>
+      <span className="text-xs font-extrabold text-blue-600 bg-blue-50 px-3 py-1.5 rounded-lg whitespace-nowrap">開く</span>
+    </summary>
+    <div className={`border-t border-slate-100 p-4 grid gap-4 ${compact ? 'grid-cols-1 lg:grid-cols-2' : 'grid-cols-1 md:grid-cols-2 xl:grid-cols-3'}`}>
+      {groups.map((group) => <SourceRatioPie key={`${title}-${group.title}`} title={group.title} sourceCount={group.sourceCount} />)}
+    </div>
+  </details>
+);
+
+const RankingInsightsPanel = ({ insights, compact = false, salespersons = [], period = 'fiscalYear', setPeriod = () => {}, staffId = 'all', setStaffId = () => {} }) => (
   <details className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden print:hidden">
     <summary className="cursor-pointer list-none px-5 py-4 flex items-center justify-between gap-4 hover:bg-slate-50">
       <div className="flex items-center gap-3 min-w-0">
@@ -1592,17 +1630,13 @@ const RankingInsightsPanel = ({ insights, compact = false, salespersons = [], pe
       <span className="text-base font-extrabold text-blue-600 bg-blue-50 px-5 py-2.5 rounded-xl whitespace-nowrap">開く</span>
     </summary>
     <div className="border-t border-slate-100 p-4 space-y-5">
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 bg-blue-50/60 border border-blue-100 rounded-2xl p-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 bg-blue-50/60 border border-blue-100 rounded-2xl p-4">
         <RankingControlSelect label="期間" value={period} onChange={setPeriod}>
           {RANKING_PERIOD_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
         </RankingControlSelect>
         <RankingControlSelect label="営業員" value={staffId} onChange={setStaffId}>
           <option value="all">全員</option>
           {salespersons.filter((staff) => staff?.id).map((staff) => <option key={staff.id} value={staff.id}>{staff.name}</option>)}
-        </RankingControlSelect>
-        <RankingControlSelect label="ランキング" value={kind} onChange={setKind}>
-          <option value="office">事業所ランキング</option>
-          <option value="newRental">新規ランキング</option>
         </RankingControlSelect>
       </div>
       <section className="space-y-3">
@@ -1613,6 +1647,7 @@ const RankingInsightsPanel = ({ insights, compact = false, salespersons = [], pe
         <div className="space-y-3">
           <h4 className="text-xs font-extrabold text-blue-700 tracking-widest uppercase">{insights.branch.rankingLabel}</h4>
           <RankingGroupGrid groups={insights.branch.groups} compact={compact} />
+          <SourceRatioPanel title={insights.branch.title} groups={insights.branch.groups} compact={compact} />
         </div>
       </section>
       {staffId === 'all' && <section className="space-y-3">
@@ -1631,6 +1666,7 @@ const RankingInsightsPanel = ({ insights, compact = false, salespersons = [], pe
                 <div className="space-y-3">
                   <h4 className="text-xs font-extrabold text-blue-700 tracking-widest uppercase">{person.rankingLabel}</h4>
                   <RankingGroupGrid groups={person.groups} compact={compact} />
+                  <SourceRatioPanel title={person.name} groups={person.groups} compact={compact} />
                 </div>
               </div>
             </details>
