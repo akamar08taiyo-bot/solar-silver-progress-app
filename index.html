@@ -987,6 +987,16 @@ const MainApp = ({ branchSetting }) => {
         body{background:white!important;-webkit-print-color-adjust:exact;print-color-adjust:exact}
         .print\\:hidden,.print-hidden{display:none!important}
         .pdf-page{box-sizing:border-box!important;width:210mm!important;max-width:210mm!important;height:297mm!important;margin:0!important;overflow:hidden!important}
+        .ranking-print-section{display:block!important;border:0!important;box-shadow:none!important;overflow:visible!important;background:white!important;break-inside:auto!important;page-break-inside:auto!important}
+        .ranking-print-section>.ranking-print-summary{display:flex!important;padding:0 0 8px!important;background:white!important;border-bottom:2px solid #0f172a!important;break-after:avoid!important}
+        .ranking-print-section:not([open])>.ranking-print-body,.ranking-print-section details:not([open])>div{display:block!important}
+        .source-ratio-print-section:not([open])>.source-ratio-print-body{display:grid!important}
+        .ranking-print-body{display:block!important;border-top:0!important;padding:8px 0 0!important}
+        .ranking-print-controls,.ranking-print-action,.ranking-print-section .text-blue-600.bg-blue-50{display:none!important}
+        .ranking-print-section section,.ranking-print-section details,.ranking-print-section .border{break-inside:avoid!important;page-break-inside:avoid!important}
+        .source-ratio-print-section{background:white!important;border:1px solid #cbd5e1!important;box-shadow:none!important;overflow:visible!important}
+        .source-ratio-print-section>.source-ratio-print-summary{display:flex!important;padding:8px 10px!important;background:#f8fafc!important}
+        .source-ratio-print-body{display:grid!important;padding:10px!important}
         table{table-layout:fixed!important;border-collapse:collapse!important}
         th,td{overflow-wrap:anywhere}
         .modal-overlay{position:absolute!important;background:white!important;z-index:9999!important;padding:0!important;margin:0!important;top:0!important;left:0!important;width:100vw!important;min-height:100vh!important}
@@ -1603,23 +1613,23 @@ const SourceRatioPie = ({ title, sourceCount }) => {
 };
 
 const SourceRatioPanel = ({ title, groups, compact = false }) => (
-  <details className="border border-slate-200 rounded-2xl bg-slate-50/60 overflow-hidden">
-    <summary className="cursor-pointer list-none px-4 py-3 flex items-center justify-between gap-3 bg-white hover:bg-slate-50">
+  <details className="source-ratio-print-section border border-slate-200 rounded-2xl bg-slate-50/60 overflow-hidden">
+    <summary className="source-ratio-print-summary cursor-pointer list-none px-4 py-3 flex items-center justify-between gap-3 bg-white hover:bg-slate-50">
       <div>
         <h4 className="text-base font-extrabold text-slate-900">包括・居宅・連携室割合</h4>
         <p className="text-xs font-bold text-slate-500">{title}の各項目ごとの依頼割合を円グラフで確認できます</p>
       </div>
       <span className="text-xs font-extrabold text-blue-600 bg-blue-50 px-3 py-1.5 rounded-lg whitespace-nowrap">開く</span>
     </summary>
-    <div className={`border-t border-slate-100 p-4 grid gap-4 ${compact ? 'grid-cols-1 lg:grid-cols-2' : 'grid-cols-1 md:grid-cols-2 xl:grid-cols-3'}`}>
+    <div className={`source-ratio-print-body border-t border-slate-100 p-4 grid gap-4 ${compact ? 'grid-cols-1 lg:grid-cols-2' : 'grid-cols-1 md:grid-cols-2 xl:grid-cols-3'}`}>
       {groups.map((group) => <SourceRatioPie key={`${title}-${group.title}`} title={group.title} sourceCount={group.sourceCount} />)}
     </div>
   </details>
 );
 
 const RankingInsightsPanel = ({ insights, compact = false, salespersons = [], period = 'fiscalYear', setPeriod = () => {}, staffId = 'all', setStaffId = () => {} }) => (
-  <details className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden print:hidden">
-    <summary className="cursor-pointer list-none px-5 py-4 flex items-center justify-between gap-4 hover:bg-slate-50">
+  <details className="ranking-print-section bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
+    <summary className="ranking-print-summary cursor-pointer list-none px-5 py-4 flex items-center justify-between gap-4 hover:bg-slate-50">
       <div className="flex items-center gap-3 min-w-0">
         <div className="w-12 h-12 rounded-xl bg-blue-50 text-blue-500 flex items-center justify-center shrink-0"><TrendingUp size={24} /></div>
         <div className="min-w-0">
@@ -1627,10 +1637,13 @@ const RankingInsightsPanel = ({ insights, compact = false, salespersons = [], pe
           <div className="text-sm font-bold text-slate-500 truncate">{insights.periodLabel} / {insights.branch.rankingLabel}を確認できます</div>
         </div>
       </div>
-      <span className="text-base font-extrabold text-blue-600 bg-blue-50 px-5 py-2.5 rounded-xl whitespace-nowrap">開く</span>
+      <div className="flex items-center gap-2">
+        <button type="button" onClick={(e) => { e.preventDefault(); e.stopPropagation(); window.print(); }} className="ranking-print-action text-base font-extrabold text-slate-700 bg-white border border-slate-200 px-5 py-2.5 rounded-xl whitespace-nowrap hover:border-blue-300 hover:text-blue-600">印刷</button>
+        <span className="text-base font-extrabold text-blue-600 bg-blue-50 px-5 py-2.5 rounded-xl whitespace-nowrap">開く</span>
+      </div>
     </summary>
-    <div className="border-t border-slate-100 p-4 space-y-5">
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 bg-blue-50/60 border border-blue-100 rounded-2xl p-4">
+    <div className="ranking-print-body border-t border-slate-100 p-4 space-y-5">
+      <div className="ranking-print-controls grid grid-cols-1 sm:grid-cols-2 gap-4 bg-blue-50/60 border border-blue-100 rounded-2xl p-4">
         <RankingControlSelect label="期間" value={period} onChange={setPeriod}>
           {RANKING_PERIOD_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
         </RankingControlSelect>
