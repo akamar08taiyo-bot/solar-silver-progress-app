@@ -464,7 +464,7 @@ const SetupScreen = ({ onComplete }) => {
 
 const NewEntryForm = React.memo(({ salespersons, onSubmit, selectedStaffId, onStaffChange }) => {
   const [data, setData] = useState({ customerName: '', careHomeName: '', category: RENTAL_CATEGORIES[0], source: sources[0], amount: '', status: '未確定', isCarryOver: false, billingType: 'full' });
-  const [showOptionalCategories, setShowOptionalCategories] = useState(false);
+  const [showOptionalCategories, setShowOptionalCategories] = useState(() => localStorage.getItem('solar_silver_optional_categories_open') === 'true');
   const rentalWithBilling = RENTAL_CATEGORIES.includes(data.category) && data.category !== '特価ベッド';
   const primaryCategories = useMemo(() => allCategories.filter((c) => !OTHER_SALES_CATS.includes(c)), []);
   const optionalCategories = OTHER_SALES_CATS;
@@ -475,6 +475,7 @@ const NewEntryForm = React.memo(({ salespersons, onSubmit, selectedStaffId, onSt
   const handleOptionalToggle = useCallback(() => {
     setShowOptionalCategories((open) => {
       const next = !open;
+      localStorage.setItem('solar_silver_optional_categories_open', String(next));
       if (!next && OTHER_SALES_CATS.includes(data.category)) {
         setData((prev) => ({ ...prev, category: RENTAL_CATEGORIES[0], status: getStatusesByCategory(RENTAL_CATEGORIES[0])[0], source: sources[0] }));
       }
@@ -642,50 +643,105 @@ const progressDisplayValue = (p, col, kind) => {
   return metric[`${kind}Cnt`];
 };
 
-const ProgressTable = ({ data, staffIdFilter }) => (
-  <div className="overflow-x-auto">
-    <table className="w-full text-left border-collapse min-w-[1260px] table-fixed">
-      <thead className="bg-slate-50 text-xs text-slate-700 font-bold border-b border-slate-200">
-        <tr>
-          <th className="px-4 py-3 border-r border-slate-200/50 w-[120px]">氏名</th>
-          {PROGRESS_COLUMNS.map((col) => <th key={col.key} className="px-3 py-3 text-center border-r border-slate-200/50 w-[190px] whitespace-nowrap">{col.title}</th>)}
-        </tr>
-      </thead>
-      <tbody className="divide-y divide-slate-100 text-base">
-        {data.filter((p) => staffIdFilter === 'all' || p.id === staffIdFilter).map((p) => (
-          <tr key={p.id} className="hover:bg-blue-50/20 transition-all">
-            <td className="px-4 py-2 border-r border-slate-200/50 font-bold text-slate-800 bg-slate-50/5 text-xl truncate align-middle">{p.name}</td>
-            {PROGRESS_COLUMNS.map((col) => (
-              <td key={col.key} className="px-3 py-2 border-r border-slate-200/50 align-top">
-                <div className="flex flex-col justify-start h-full min-h-[150px]">
-                  {col.isBacklog ? (
-                    <div className="h-[108px] flex flex-col items-center justify-center bg-slate-50/60 rounded-lg border border-slate-100">
-                      <span className="text-xs font-extrabold text-slate-600 mb-2">受注残</span>
-                      <span className="text-[17px] font-extrabold text-slate-800 leading-none whitespace-nowrap">¥{yenK(p.current.rentalBacklogTotalAmt)}千円</span>
-                    </div>
-                  ) : (
-                    <>
-                      <ProgressMetric label="実績" value={progressDisplayValue(p, col, 'done')} />
-                      <ProgressMetric label="見込み" value={progressDisplayValue(p, col, 'forecast')} blue />
-                      <SourceBreakdown sourceCount={p.current[col.key].sourceCount} />
-                    </>
-                  )}
-                  {col.noTarget ? (
-                    <div className="h-[30px]" aria-hidden="true" />
-                  ) : (
-                    <div className="text-xs text-slate-700 mt-auto pt-2 font-bold flex items-center justify-between whitespace-nowrap h-[30px] border-t border-slate-50">
-                      <span>{col.isAmount ? '目標額' : '目標'}</span><span>{col.isAmount ? `¥${Number(p[col.targetKey] || 0).toLocaleString()}` : Number(p[col.targetKey] || 0)}</span>
-                    </div>
-                  )}
-                </div>
-              </td>
-            ))}
+const buildProgressTotalRow = (rows) => {
+  const total = {
+    id: '__branch_total__',
+    name: '営業所合計',
+    targetRentalNew: 0,
+    targetBedNew: 0,
+    budgetRenovation: 0,
+    budgetEquipment: 0,
+    current: {
+      rentalBacklogTotalAmt: 0,
+      rentalNew: { doneCnt: 0, doneAmt: 0, forecastCnt: 0, forecastAmt: 0, sourceCount: createSourceCount() },
+      bed: { doneCnt: 0, doneAmt: 0, forecastCnt: 0, forecastAmt: 0, sourceCount: createSourceCount() },
+      renovation: { doneCnt: 0, doneAmt: 0, forecastCnt: 0, forecastAmt: 0, sourceCount: createSourceCount() },
+      equipment: { doneCnt: 0, doneAmt: 0, forecastCnt: 0, forecastAmt: 0, sourceCount: createSourceCount() },
+      otherSales: { doneCnt: 0, doneAmt: 0, forecastCnt: 0, forecastAmt: 0, sourceCount: createSourceCount() }
+    }
+  };
+  for (const row of rows) {
+    total.targetRentalNew += Number(row.targetRentalNew || 0);
+    total.targetBedNew += Number(row.targetBedNew || 0);
+    total.budgetRenovation += Number(row.budgetRenovation || 0);
+    total.budgetEquipment += Number(row.budgetEquipment || 0);
+    total.current.rentalBacklogTotalAmt += Number(row.current?.rentalBacklogTotalAmt || 0);
+    for (const key of ['rentalNew', 'bed', 'renovation', 'equipment', 'otherSales']) {
+      const source = row.current?.[key] || {};
+      const target = total.current[key];
+      target.doneCnt += Number(source.doneCnt || 0);
+      target.doneAmt += Number(source.doneAmt || 0);
+      target.forecastCnt += Number(source.forecastCnt || 0);
+      target.forecastAmt += Number(source.forecastAmt || 0);
+      for (const sourceName of Object.keys(target.sourceCount)) {
+        target.sourceCount[sourceName] += Number(source.sourceCount?.[sourceName] || 0);
+      }
+    }
+  }
+  return total;
+};
+
+const progressCombinedValue = (p, col) => {
+  const metric = p.current[col.key];
+  const cnt = Number(metric.doneCnt || 0) + Number(metric.forecastCnt || 0);
+  const amt = Number(metric.doneAmt || 0) + Number(metric.forecastAmt || 0);
+  if (col.isAmount) return `${cnt}件(${yenK(amt)}千円)`;
+  return `${cnt}`;
+};
+
+const progressRemainingValue = (p, col) => {
+  if (col.noTarget || col.isBacklog) return null;
+  const metric = p.current[col.key];
+  const combined = col.isAmount
+    ? Number(metric.doneAmt || 0) + Number(metric.forecastAmt || 0)
+    : Number(metric.doneCnt || 0) + Number(metric.forecastCnt || 0);
+  const remaining = Number(p[col.targetKey] || 0) - combined;
+  return col.isAmount ? `¥${remaining.toLocaleString()}` : `${remaining}件`;
+};
+
+const ProgressTable = ({ data, staffIdFilter }) => {
+  const filteredRows = data.filter((p) => staffIdFilter === 'all' || p.id === staffIdFilter);
+  const rows = staffIdFilter === 'all' && filteredRows.length ? [buildProgressTotalRow(filteredRows), ...filteredRows] : filteredRows;
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full text-left border-collapse min-w-[1260px] table-fixed">
+        <thead className="bg-slate-50 text-xs text-slate-700 font-bold border-b border-slate-200">
+          <tr>
+            <th className="px-4 py-3 border-r border-slate-200/50 w-[120px]">氏名</th>
+            {PROGRESS_COLUMNS.map((col) => <th key={col.key} className="px-3 py-3 text-center border-r border-slate-200/50 w-[190px] whitespace-nowrap">{col.title}</th>)}
           </tr>
-        ))}
-      </tbody>
-    </table>
-  </div>
-);
+        </thead>
+        <tbody className="divide-y divide-slate-100 text-base">
+          {rows.map((p) => (
+            <tr key={p.id} className={`hover:bg-blue-50/20 transition-all ${p.id === '__branch_total__' ? 'bg-blue-50/30' : ''}`}>
+              <td className="px-4 py-2 border-r border-slate-200/50 font-bold text-slate-800 bg-slate-50/5 text-xl truncate align-middle">{p.name}</td>
+              {PROGRESS_COLUMNS.map((col) => (
+                <td key={col.key} className="px-3 py-2 border-r border-slate-200/50 align-top">
+                  <div className="flex flex-col justify-start h-full min-h-[150px]">
+                    {col.isBacklog ? (
+                      <div className="h-[132px] flex flex-col items-center justify-center bg-slate-50/60 rounded-lg border border-slate-100">
+                        <span className="text-xs font-extrabold text-slate-600 mb-2">受注残</span>
+                        <span className="text-[17px] font-extrabold text-slate-800 leading-none whitespace-nowrap">¥{yenK(p.current.rentalBacklogTotalAmt)}千円</span>
+                      </div>
+                    ) : (
+                      <>
+                        <ProgressMetric label="実績" value={progressDisplayValue(p, col, 'done')} />
+                        <ProgressMetric label="見込み" value={progressDisplayValue(p, col, 'forecast')} blue />
+                        <SourceBreakdown sourceCount={p.current[col.key].sourceCount} />
+                        <ProgressSubMetric label="実績+見込" value={progressCombinedValue(p, col)} />
+                        {progressRemainingValue(p, col) && <ProgressSubMetric label="目標まで" value={progressRemainingValue(p, col)} muted />}
+                      </>
+                    )}
+                  </div>
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+};
 
 const ProgressMetric = ({ label, value, blue = false }) => (
   <div className={`flex items-center justify-between h-[54px] ${blue ? 'border-t border-blue-50 bg-blue-50/20 -mx-3 px-3' : 'px-0'}`}>
@@ -697,6 +753,13 @@ const ProgressMetric = ({ label, value, blue = false }) => (
 const SourceBreakdown = ({ sourceCount }) => (
   <div className="text-[10px] font-extrabold text-slate-500 text-center whitespace-nowrap leading-none mt-1">
     {formatSourceBreakdown(sourceCount)}
+  </div>
+);
+
+const ProgressSubMetric = ({ label, value, muted = false }) => (
+  <div className={`mt-1 flex items-center justify-between gap-1 rounded-md px-2 py-1 text-[11px] font-extrabold leading-none whitespace-nowrap ${muted ? 'bg-amber-50 text-amber-700' : 'bg-slate-50 text-slate-700'}`}>
+    <span>{label}</span>
+    <span>{value}</span>
   </div>
 );
 
@@ -823,17 +886,19 @@ const PdfProgressCell = ({ p, col }) => {
       </div>
     );
   }
+  const remaining = progressRemainingValue(p, col);
   return (
     <div style={{ ...pdfCellBaseStyle, height: PDF_STAFF_ROW_HEIGHT }}>
-      <div style={{ height: PDF_STAFF_ROW_HEIGHT, display: 'grid', gridTemplateRows: '6.5mm 6.5mm 5.2mm 1.2mm 7.6mm', alignItems: 'center', textAlign: 'center' }}>
+      <div style={{ height: PDF_STAFF_ROW_HEIGHT, display: 'grid', gridTemplateRows: '5.1mm 5.1mm 4.5mm 5.1mm 1mm 6.2mm', alignItems: 'center', textAlign: 'center' }}>
         <div style={{ fontSize: '8.7px', fontWeight: 900, lineHeight: 1, color: '#0f172a', whiteSpace: 'nowrap' }}>実績:{pdfProgressValue(p, col, 'done')}</div>
         <div style={{ fontSize: '8.7px', fontWeight: 950, lineHeight: 1, color: '#b91c1c', whiteSpace: 'nowrap' }}>見込み:{pdfProgressValue(p, col, 'forecast')}</div>
         <div style={{ fontSize: '7.1px', fontWeight: 950, lineHeight: 1, color: '#020617', whiteSpace: 'nowrap' }}>{formatSourceBreakdown(p.current[col.key].sourceCount)}</div>
-        <div style={col.noTarget ? {} : { borderTop: '1px dashed #cbd5e1', margin: '0 2.4mm' }} />
-        {col.noTarget ? (
-          <div />
+        <div style={{ fontSize: '7.9px', fontWeight: 950, lineHeight: 1, color: '#0f172a', whiteSpace: 'nowrap' }}>実績+見込:{progressCombinedValue(p, col)}</div>
+        <div style={remaining ? { borderTop: '1px dashed #cbd5e1', margin: '0 2.4mm' } : {}} />
+        {remaining ? (
+          <div style={{ fontSize: '7.8px', fontWeight: 850, lineHeight: 1, color: '#92400e', whiteSpace: 'nowrap' }}>目標まで:{remaining}</div>
         ) : (
-          <div style={{ fontSize: '8.8px', fontWeight: 700, lineHeight: 1, color: '#0f172a', whiteSpace: 'nowrap' }}>目標:{col.isAmount ? Number(p[col.targetKey] || 0).toLocaleString() : Number(p[col.targetKey] || 0)}</div>
+          <div />
         )}
       </div>
     </div>
@@ -866,23 +931,29 @@ const PdfHeader = ({ branchName, currentMonth, compact = false }) => (
   </div>
 );
 
-const PdfStaffTable = ({ people }) => (
-  <div style={{ width: '100%', display: 'grid', gridTemplateColumns: PDF_PROGRESS_GRID_COLUMNS, borderTop: pdfCellBorder, borderLeft: pdfCellBorder, boxSizing: 'border-box', overflow: 'hidden' }}>
-    <div style={{ ...pdfCellBaseStyle, height: '13mm', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: '#f1f5f9', fontSize: '10px', fontWeight: 950, whiteSpace: 'nowrap' }}>氏名</div>
-    {PROGRESS_COLUMNS.map((c) => (
-      <div key={c.key} style={{ ...pdfCellBaseStyle, height: '13mm', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: '#f1f5f9', fontSize: '9px', fontWeight: 950, lineHeight: 1.05, whiteSpace: 'nowrap' }}>{c.title}</div>
-    ))}
-    {people.map((p) => (
-      <React.Fragment key={p.id}>
-        <div style={{ ...pdfCellBaseStyle, height: PDF_STAFF_ROW_HEIGHT, display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: '#f8fafc', fontSize: '13px', fontWeight: 950, whiteSpace: 'nowrap' }}>{p.name}</div>
-        {PROGRESS_COLUMNS.map((c) => <PdfProgressCell key={c.key} p={p} col={c} />)}
-      </React.Fragment>
-    ))}
-  </div>
-);
+const PdfStaffTable = ({ people, includeTotal = false }) => {
+  const rows = includeTotal && people.length ? [buildProgressTotalRow(people), ...people] : people;
+  return (
+    <div style={{ width: '100%', display: 'grid', gridTemplateColumns: PDF_PROGRESS_GRID_COLUMNS, borderTop: pdfCellBorder, borderLeft: pdfCellBorder, boxSizing: 'border-box', overflow: 'hidden' }}>
+      <div style={{ ...pdfCellBaseStyle, height: '13mm', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: '#f1f5f9', fontSize: '10px', fontWeight: 950, whiteSpace: 'nowrap' }}>氏名</div>
+      {PROGRESS_COLUMNS.map((c) => (
+        <div key={c.key} style={{ ...pdfCellBaseStyle, height: '13mm', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: '#f1f5f9', fontSize: '9px', fontWeight: 950, lineHeight: 1.05, whiteSpace: 'nowrap' }}>{c.title}</div>
+      ))}
+      {rows.map((p) => (
+        <React.Fragment key={p.id}>
+          <div style={{ ...pdfCellBaseStyle, height: PDF_STAFF_ROW_HEIGHT, display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: p.id === '__branch_total__' ? '#eff6ff' : '#f8fafc', fontSize: '13px', fontWeight: 950, whiteSpace: 'nowrap' }}>{p.name}</div>
+          {PROGRESS_COLUMNS.map((c) => <PdfProgressCell key={c.key} p={p} col={c} />)}
+        </React.Fragment>
+      ))}
+    </div>
+  );
+};
 
 const PDFTemplate = React.forwardRef(({ branchName, currentMonth, branchSummary, branchTotalPersonDetailedSummary }, ref) => {
-  const staffPages = chunkArray(branchTotalPersonDetailedSummary, 8);
+  const firstStaffPage = branchTotalPersonDetailedSummary.slice(0, 7);
+  const staffPages = branchTotalPersonDetailedSummary.length <= 7
+    ? [firstStaffPage].filter((page) => page.length)
+    : [firstStaffPage, ...chunkArray(branchTotalPersonDetailedSummary.slice(7), 8)];
   return (
   <div ref={ref} style={{ width: '210mm', background: 'white', position: 'fixed', left: '-10000px', top: '0', color: '#0f172a', zoom: 1, transform: 'none', letterSpacing: 0, boxSizing: 'border-box' }}>
     <div className="pdf-page p-[14mm]" style={{ width: '210mm', height: '297mm', boxSizing: 'border-box', display: 'flex', flexDirection: 'column', backgroundColor: '#fff', letterSpacing: 0, fontKerning: 'normal', overflow: 'hidden' }}>
@@ -898,7 +969,7 @@ const PDFTemplate = React.forwardRef(({ branchName, currentMonth, branchSummary,
           <h2 className="text-xl font-bold border-l-8 border-slate-800 pl-4">所員別 進捗ステータス詳細</h2>
           <div className="text-sm font-bold text-slate-700">{index + 1}/{staffPages.length}ページ</div>
         </div>
-        <PdfStaffTable people={people} />
+        <PdfStaffTable people={people} includeTotal={index === 0} />
         <div className="mt-auto pt-4 text-right text-[10px] text-slate-900 font-bold border-t border-slate-200">太陽シルバーサービス株式会社 {branchName} 進捗管理報告</div>
       </div>
     ))}
