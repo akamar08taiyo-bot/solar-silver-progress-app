@@ -380,17 +380,23 @@ const statRows = (summary) => [
 
 const getStaffSourceRows = (staffBreakdown, key) => (staffBreakdown || [])
   .filter((staff) => staff?.id && staff?.current?.[key])
-  .map((staff) => ({ id: staff.id, name: staff.name, sourceCount: staff.current[key].sourceCount || createSourceCount(), total: Number(staff.current[key].forecastCnt || 0) }))
-  .filter((row) => row.total > 0 || Object.values(row.sourceCount).some((v) => Number(v || 0) > 0));
+  .map((staff) => ({ id: staff.id, name: staff.name, key, sourceCount: staff.current[key].sourceCount || createSourceCount(), totalCnt: Number(staff.current[key].forecastCnt || 0), totalAmt: Number(staff.current[key].forecastAmt || 0) }))
+  .filter((row) => row.totalCnt > 0 || row.totalAmt > 0 || Object.values(row.sourceCount).some((v) => Number(v || 0) > 0));
+
+const formatBreakdownTotal = (key, totalCnt, totalAmt) => {
+  if (key === 'bed') return `${totalCnt}台`;
+  if (key === 'renovation' || key === 'equipment') return `${totalCnt}件(${yenK(totalAmt)}千円)`;
+  return `${totalCnt}件`;
+};
 
 const StaffSourceBreakdownPanel = ({ rows, pdf = false }) => {
   if (!rows.length) return <div className={`${pdf ? '' : 'mt-2'} text-[11px] font-bold text-slate-500`}>営業員別の内訳はありません</div>;
   return (
     <div className={`${pdf ? 'mt-2 space-y-1' : 'mt-3 space-y-1.5 border-t border-blue-100 pt-2'}`}>
       {rows.map((row) => (
-        <div key={row.id} className={`${pdf ? 'text-[9px]' : 'text-[11px] sm:text-xs'} grid grid-cols-[minmax(70px,1fr)_auto] gap-2 font-extrabold text-slate-700`}>
+        <div key={row.id} className={`${pdf ? 'text-[9px]' : 'text-[11px] sm:text-xs'} grid grid-cols-[minmax(64px,1fr)_auto] gap-2 font-extrabold text-slate-700`}>
           <span className="truncate">{row.name}</span>
-          <span className="whitespace-nowrap">包括:{row.sourceCount['包括'] || 0} 居宅:{row.sourceCount['居宅'] || 0} 連携室:{row.sourceCount['退院/連携室'] || 0}</span>
+          <span className="whitespace-nowrap">合計:{formatBreakdownTotal(row.key, row.totalCnt, row.totalAmt)} 包括:{row.sourceCount['包括'] || 0} 居宅:{row.sourceCount['居宅'] || 0} 連携室:{row.sourceCount['退院/連携室'] || 0}</span>
         </div>
       ))}
     </div>
@@ -725,16 +731,6 @@ const progressCombinedValue = (p, col) => {
   return `${cnt}`;
 };
 
-const progressRemainingValue = (p, col) => {
-  if (col.noTarget || col.isBacklog) return null;
-  const metric = p.current[col.key];
-  const combined = col.isAmount
-    ? Number(metric.doneAmt || 0) + Number(metric.forecastAmt || 0)
-    : Number(metric.doneCnt || 0) + Number(metric.forecastCnt || 0);
-  const remaining = Number(p[col.targetKey] || 0) - combined;
-  return col.isAmount ? `¥${remaining.toLocaleString()}` : `${remaining}件`;
-};
-
 const ProgressTable = ({ data, staffIdFilter }) => {
   const filteredRows = data.filter((p) => staffIdFilter === 'all' || p.id === staffIdFilter);
   const rows = staffIdFilter === 'all' && filteredRows.length ? [buildProgressTotalRow(filteredRows), ...filteredRows] : filteredRows;
@@ -765,7 +761,6 @@ const ProgressTable = ({ data, staffIdFilter }) => {
                         <ProgressMetric label="見込み" value={progressDisplayValue(p, col, 'forecast')} blue />
                         <SourceBreakdown sourceCount={p.current[col.key].sourceCount} />
                         <ProgressSubMetric label="実績+見込" value={progressCombinedValue(p, col)} />
-                        {progressRemainingValue(p, col) && <ProgressSubMetric label="目標まで" value={progressRemainingValue(p, col)} muted />}
                       </>
                     )}
                   </div>
@@ -922,20 +917,13 @@ const PdfProgressCell = ({ p, col }) => {
       </div>
     );
   }
-  const remaining = progressRemainingValue(p, col);
   return (
     <div style={{ ...pdfCellBaseStyle, height: PDF_STAFF_ROW_HEIGHT }}>
-      <div style={{ height: PDF_STAFF_ROW_HEIGHT, display: 'grid', gridTemplateRows: '5.1mm 5.1mm 4.5mm 5.1mm 1mm 6.2mm', alignItems: 'center', textAlign: 'center' }}>
+      <div style={{ height: PDF_STAFF_ROW_HEIGHT, display: 'grid', gridTemplateRows: '6.1mm 6.1mm 5.2mm 6.1mm', alignItems: 'center', textAlign: 'center' }}>
         <div style={{ fontSize: '8.7px', fontWeight: 900, lineHeight: 1, color: '#0f172a', whiteSpace: 'nowrap' }}>実績:{pdfProgressValue(p, col, 'done')}</div>
         <div style={{ fontSize: '8.7px', fontWeight: 950, lineHeight: 1, color: '#b91c1c', whiteSpace: 'nowrap' }}>見込み:{pdfProgressValue(p, col, 'forecast')}</div>
         <div style={{ fontSize: '7.1px', fontWeight: 950, lineHeight: 1, color: '#020617', whiteSpace: 'nowrap' }}>{formatSourceBreakdown(p.current[col.key].sourceCount)}</div>
         <div style={{ fontSize: '7.9px', fontWeight: 950, lineHeight: 1, color: '#0f172a', whiteSpace: 'nowrap' }}>実績+見込:{progressCombinedValue(p, col)}</div>
-        <div style={remaining ? { borderTop: '1px dashed #cbd5e1', margin: '0 2.4mm' } : {}} />
-        {remaining ? (
-          <div style={{ fontSize: '7.8px', fontWeight: 850, lineHeight: 1, color: '#92400e', whiteSpace: 'nowrap' }}>目標まで:{remaining}</div>
-        ) : (
-          <div />
-        )}
       </div>
     </div>
   );
@@ -967,19 +955,24 @@ const buildPdfBreakdownPages = (branchSummary, branchTotalPersonDetailedSummary)
     const rows = getStaffSourceRows(branchTotalPersonDetailedSummary, item.key);
     if (!rows.length) return [];
     const chunks = chunkArray(rows, PDF_BREAKDOWN_ROWS_PER_PAGE);
-    return chunks.map((chunk, pageIndex) => ({ item, rows: chunk, pageIndex, pageTotal: chunks.length }));
+    const totals = rows.reduce((acc, row) => ({
+      totalCnt: acc.totalCnt + Number(row.totalCnt || 0),
+      totalAmt: acc.totalAmt + Number(row.totalAmt || 0)
+    }), { totalCnt: 0, totalAmt: 0 });
+    return chunks.map((chunk, pageIndex) => ({ item, rows: chunk, totals, pageIndex, pageTotal: chunks.length }));
   });
 
 const PdfBreakdownTable = ({ rows }) => (
   <div style={{ borderTop: pdfCellBorder, borderLeft: pdfCellBorder, width: '100%', boxSizing: 'border-box' }}>
-    <div style={{ display: 'grid', gridTemplateColumns: '28% 24% 24% 24%' }}>
-      {['営業員', '包括', '居宅', '連携室'].map((header) => (
+    <div style={{ display: 'grid', gridTemplateColumns: '24% 28% 16% 16% 16%' }}>
+      {['営業員', '合計', '包括', '居宅', '連携室'].map((header) => (
         <div key={header} style={{ borderRight: pdfCellBorder, borderBottom: pdfCellBorder, background: '#f1f5f9', padding: '3.2mm 3mm', fontSize: '12px', fontWeight: 950, lineHeight: 1.2 }}>{header}</div>
       ))}
     </div>
     {rows.map((row) => (
-      <div key={row.id} style={{ display: 'grid', gridTemplateColumns: '28% 24% 24% 24%', breakInside: 'avoid', pageBreakInside: 'avoid' }}>
+      <div key={row.id} style={{ display: 'grid', gridTemplateColumns: '24% 28% 16% 16% 16%', breakInside: 'avoid', pageBreakInside: 'avoid' }}>
         <div style={{ borderRight: pdfCellBorder, borderBottom: pdfCellBorder, padding: '3.4mm 3mm', fontSize: '12px', fontWeight: 950, lineHeight: 1.25, minHeight: '10mm', overflowWrap: 'anywhere' }}>{row.name}</div>
+        <div style={{ borderRight: pdfCellBorder, borderBottom: pdfCellBorder, padding: '3.4mm 3mm', fontSize: '12px', fontWeight: 950, lineHeight: 1.25, minHeight: '10mm', whiteSpace: 'nowrap' }}>{formatBreakdownTotal(row.key, row.totalCnt, row.totalAmt)}</div>
         <div style={{ borderRight: pdfCellBorder, borderBottom: pdfCellBorder, padding: '3.4mm 3mm', fontSize: '12px', fontWeight: 900, lineHeight: 1.25, minHeight: '10mm' }}>{row.sourceCount['包括'] || 0}</div>
         <div style={{ borderRight: pdfCellBorder, borderBottom: pdfCellBorder, padding: '3.4mm 3mm', fontSize: '12px', fontWeight: 900, lineHeight: 1.25, minHeight: '10mm' }}>{row.sourceCount['居宅'] || 0}</div>
         <div style={{ borderRight: pdfCellBorder, borderBottom: pdfCellBorder, padding: '3.4mm 3mm', fontSize: '12px', fontWeight: 900, lineHeight: 1.25, minHeight: '10mm' }}>{row.sourceCount['退院/連携室'] || 0}</div>
@@ -1033,7 +1026,7 @@ const PDFTemplate = React.forwardRef(({ branchName, currentMonth, branchSummary,
         <div className="mb-5">
           <h2 className="text-2xl font-bold border-l-8 border-slate-800 pl-4">営業員別内訳</h2>
           <div className="mt-2 text-lg font-bold text-slate-900">{page.item.label} 包括・居宅・連携室</div>
-          <div className="mt-1 text-sm font-bold text-slate-700">内訳: {formatSourceBreakdown(page.item.sourceCount)}　{page.pageIndex + 1}/{page.pageTotal}ページ</div>
+          <div className="mt-1 text-sm font-bold text-slate-700">合計: {formatBreakdownTotal(page.item.key, page.totals.totalCnt, page.totals.totalAmt)}　内訳: {formatSourceBreakdown(page.item.sourceCount)}　{page.pageIndex + 1}/{page.pageTotal}ページ</div>
         </div>
         <PdfBreakdownTable rows={page.rows} />
         <div className="mt-auto pt-4 text-right text-[10px] text-slate-900 font-bold border-t border-slate-200">太陽シルバーサービス株式会社 {branchName} 進捗管理報告 / 営業員別内訳 {index + 1}/{breakdownPages.length}</div>
