@@ -371,16 +371,38 @@ const BranchSourceFilter = ({ currentFilter, onChange, prefix }) => (
 );
 
 const statRows = (summary) => [
-  { label: 'レンタル新規', actual: summary.rentalNew.doneCnt, forecast: summary.rentalNew.forecastCnt, unit: '件', sourceCount: summary.rentalNew.sourceCount },
-  { label: '特価ベッド', actual: summary.bed.doneCnt, forecast: summary.bed.forecastCnt, unit: '台', sourceCount: summary.bed.sourceCount },
-  { label: '住宅改修', actual: `${summary.renovation.doneCnt}件(${yenK(summary.renovation.doneAmt)}千円)`, forecast: `${summary.renovation.forecastCnt}件(${yenK(summary.renovation.forecastAmt)}千円)`, sourceCount: summary.renovation.sourceCount },
-  { label: '特定福祉用具', actual: `${summary.equipment.doneCnt}件(${yenK(summary.equipment.doneAmt)}千円)`, forecast: `${summary.equipment.forecastCnt}件(${yenK(summary.equipment.forecastAmt)}千円)`, sourceCount: summary.equipment.sourceCount },
-  { label: 'その他販売', actual: yenK(summary.otherSales.doneAmt), forecast: yenK(summary.otherSales.forecastAmt), unit: '千円' }
+  { key: 'rentalNew', label: 'レンタル新規', actual: summary.rentalNew.doneCnt, forecast: summary.rentalNew.forecastCnt, unit: '件', sourceCount: summary.rentalNew.sourceCount },
+  { key: 'bed', label: '特価ベッド', actual: summary.bed.doneCnt, forecast: summary.bed.forecastCnt, unit: '台', sourceCount: summary.bed.sourceCount },
+  { key: 'renovation', label: '住宅改修', actual: `${summary.renovation.doneCnt}件(${yenK(summary.renovation.doneAmt)}千円)`, forecast: `${summary.renovation.forecastCnt}件(${yenK(summary.renovation.forecastAmt)}千円)`, sourceCount: summary.renovation.sourceCount },
+  { key: 'equipment', label: '特定福祉用具', actual: `${summary.equipment.doneCnt}件(${yenK(summary.equipment.doneAmt)}千円)`, forecast: `${summary.equipment.forecastCnt}件(${yenK(summary.equipment.forecastAmt)}千円)`, sourceCount: summary.equipment.sourceCount },
+  { key: 'otherSales', label: 'その他販売', actual: yenK(summary.otherSales.doneAmt), forecast: yenK(summary.otherSales.forecastAmt), unit: '千円' }
 ];
 
-const BranchSummaryCards = ({ summary }) => (
+const getStaffSourceRows = (staffBreakdown, key) => (staffBreakdown || [])
+  .filter((staff) => staff?.id && staff?.current?.[key])
+  .map((staff) => ({ id: staff.id, name: staff.name, sourceCount: staff.current[key].sourceCount || createSourceCount(), total: Number(staff.current[key].forecastCnt || 0) }))
+  .filter((row) => row.total > 0 || Object.values(row.sourceCount).some((v) => Number(v || 0) > 0));
+
+const StaffSourceBreakdownPanel = ({ rows, pdf = false }) => {
+  if (!rows.length) return <div className={`${pdf ? '' : 'mt-2'} text-[11px] font-bold text-slate-500`}>営業員別の内訳はありません</div>;
+  return (
+    <div className={`${pdf ? 'mt-2 space-y-1' : 'mt-3 space-y-1.5 border-t border-blue-100 pt-2'}`}>
+      {rows.map((row) => (
+        <div key={row.id} className={`${pdf ? 'text-[9px]' : 'text-[11px] sm:text-xs'} grid grid-cols-[minmax(70px,1fr)_auto] gap-2 font-extrabold text-slate-700`}>
+          <span className="truncate">{row.name}</span>
+          <span className="whitespace-nowrap">包括:{row.sourceCount['包括'] || 0} 居宅:{row.sourceCount['居宅'] || 0} 連携室:{row.sourceCount['退院/連携室'] || 0}</span>
+        </div>
+      ))}
+    </div>
+  );
+};
+
+const BranchSummaryCards = ({ summary, staffBreakdown = [], openMap = {}, onToggle = () => {} }) => (
   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-    {statRows(summary).map((item) => (
+    {statRows(summary).map((item) => {
+      const staffRows = getStaffSourceRows(staffBreakdown, item.key);
+      const isOpen = Boolean(openMap[item.key]);
+      return (
       <Card key={item.label} className="p-3 sm:p-4 border-slate-200 bg-white shadow-md flex flex-col min-h-[160px] justify-between group">
         <div className="text-xs sm:text-sm font-bold text-slate-700 uppercase tracking-widest leading-none border-l-4 border-slate-300 pl-3 mb-3 whitespace-nowrap">{item.label}</div>
         <div className="flex flex-col gap-3 flex-1 justify-center min-w-0">
@@ -398,10 +420,21 @@ const BranchSummaryCards = ({ summary }) => (
                 <span>包括:{item.sourceCount['包括']}</span><span>居宅:{item.sourceCount['居宅']}</span><span>連携室:{item.sourceCount['退院/連携室']}</span>
               </div>
             ) : <div className="mt-2 h-5 invisible" />}
+            {item.sourceCount && (
+              <div className="mt-2">
+                <button type="button" onClick={() => onToggle(item.key)} className="w-full rounded-lg border border-blue-100 bg-white/80 px-3 py-2 text-xs font-bold text-blue-700 flex items-center justify-between hover:bg-blue-50 print:hidden">
+                  <span>営業員別内訳</span>
+                  <ArrowDown size={14} className={`transition-transform ${isOpen ? 'rotate-180' : ''}`} />
+                </button>
+                <div className={isOpen ? 'block' : 'hidden print:hidden'}>
+                  <StaffSourceBreakdownPanel rows={staffRows} />
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </Card>
-    ))}
+    );})}
   </div>
 );
 
@@ -523,11 +556,11 @@ const NewEntryForm = React.memo(({ salespersons, onSubmit, selectedStaffId, onSt
           <Field label={RENTAL_CATEGORIES.includes(data.category) ? '金額' : '金額(税抜)'}>
             {rentalWithBilling && (
               <div className="absolute right-1 -top-4 flex flex-row flex-nowrap bg-slate-100 rounded-lg p-0.5 border border-slate-200 shadow-sm z-10">
-                {['full', 'half', 'exchange'].map((type) => <button key={type} type="button" onClick={() => setData({ ...data, billingType: type })} className={`h-6 min-w-[44px] px-3 text-xs font-bold rounded leading-none whitespace-nowrap ${data.billingType === type ? 'bg-white text-blue-500 shadow-sm' : 'text-slate-600'}`}>{type === 'full' ? '月額' : type === 'half' ? '半月' : '別商品交換'}</button>)}
+                {['full', 'half'].map((type) => <button key={type} type="button" onClick={() => setData({ ...data, billingType: type })} className={`h-6 min-w-[44px] px-3 text-xs font-bold rounded leading-none whitespace-nowrap ${data.billingType === type ? 'bg-white text-blue-500 shadow-sm' : 'text-slate-600'}`}>{type === 'full' ? '月額' : '半月'}</button>)}
               </div>
             )}
+            {rentalWithBilling && <p className="mb-1 text-xs font-bold text-amber-700">別商品交換時は差額を入力</p>}
             <input type="number" value={data.amount} onChange={(e) => setData({ ...data, amount: e.target.value })} placeholder="¥" className="field-input text-2xl" />
-            {rentalWithBilling && data.billingType === 'exchange' && <p className="mt-1 text-xs font-bold text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">別商品交換は、全額ではなく差額を入力してください。</p>}
           </Field>
           <Field label="状態"><select value={data.status} onChange={(e) => setData({ ...data, status: e.target.value })} className="field-input text-base">{getStatusesByCategory(data.category).map((s) => <option key={s}>{s}</option>)}</select></Field>
           {!OTHER_SALES_CATS.includes(data.category) && <Field label="区分"><select value={data.source} onChange={(e) => setData({ ...data, source: e.target.value })} className="field-input text-base">{sources.map((s) => <option key={s}>{s}</option>)}</select></Field>}
@@ -578,7 +611,6 @@ const OrderRow = React.memo(({ order, onUpdate, onDelete, staffName, showStaffNa
             <div className="flex items-center justify-center bg-slate-50 rounded-lg p-0.5 border border-slate-100">
               <button onClick={() => changeBilling('full')} className={`px-2 py-1.5 text-xs font-bold rounded whitespace-nowrap ${order.billingType !== 'half' && order.billingType !== 'exchange' ? 'bg-white text-blue-500 shadow-sm' : 'text-slate-600'}`}>月額</button>
               <button onClick={() => changeBilling('half')} className={`px-2 py-1.5 text-xs font-bold rounded whitespace-nowrap ${order.billingType === 'half' ? 'bg-white text-blue-500 shadow-sm' : 'text-slate-600'}`}>半月</button>
-              <button onClick={() => changeBilling('exchange')} className={`px-2 py-1.5 text-xs font-bold rounded whitespace-nowrap ${order.billingType === 'exchange' ? 'bg-white text-amber-600 shadow-sm' : 'text-slate-600'}`}>別商品交換</button>
             </div>
             {order.billingType === 'exchange' && <span className="text-[9px] font-bold text-amber-700 leading-none whitespace-nowrap">差額入力</span>}
           </div>
@@ -908,7 +940,7 @@ const PdfProgressCell = ({ p, col }) => {
   );
 };
 
-const PdfBranchStatCard = ({ item }) => (
+const PdfBranchStatCard = ({ item, staffRows = [], isOpen = false }) => (
   <div key={item.label} className="border-2 border-slate-400 rounded-xl p-4">
     <div className="text-xs font-bold text-slate-900 mb-2">{item.label}</div>
     {item.sourceCount && (
@@ -916,6 +948,7 @@ const PdfBranchStatCard = ({ item }) => (
         内訳: {formatSourceBreakdown(item.sourceCount)}
       </div>
     )}
+    {item.sourceCount && isOpen && <StaffSourceBreakdownPanel rows={staffRows} pdf />}
     <div className="flex justify-between text-base mb-3">
       <span className="font-bold">当月実績:</span>
       <span className="font-bold">{item.actual}{item.unit && !String(item.actual).includes('(') ? item.unit : ''}</span>
@@ -952,7 +985,7 @@ const PdfStaffTable = ({ people, includeTotal = false }) => {
   );
 };
 
-const PDFTemplate = React.forwardRef(({ branchName, currentMonth, branchSummary, branchTotalPersonDetailedSummary }, ref) => {
+const PDFTemplate = React.forwardRef(({ branchName, currentMonth, branchSummary, branchTotalPersonDetailedSummary, branchSourceBreakdownOpen = {} }, ref) => {
   const firstStaffPage = branchTotalPersonDetailedSummary.slice(0, 7);
   const staffPages = branchTotalPersonDetailedSummary.length <= 7
     ? [firstStaffPage].filter((page) => page.length)
@@ -961,7 +994,7 @@ const PDFTemplate = React.forwardRef(({ branchName, currentMonth, branchSummary,
   <div ref={ref} style={{ width: '210mm', background: 'white', position: 'fixed', left: '-10000px', top: '0', color: '#0f172a', zoom: 1, transform: 'none', letterSpacing: 0, boxSizing: 'border-box' }}>
     <div className="pdf-page p-[14mm]" style={{ width: '210mm', height: '297mm', boxSizing: 'border-box', display: 'flex', flexDirection: 'column', backgroundColor: '#fff', letterSpacing: 0, fontKerning: 'normal', overflow: 'hidden' }}>
       <PdfHeader branchName={branchName} currentMonth={currentMonth} />
-      <div className="grid grid-cols-2 gap-5 mb-8">{statRows(branchSummary).slice(0, 4).map((item) => <PdfBranchStatCard key={item.label} item={item} />)}</div>
+      <div className="grid grid-cols-2 gap-5 mb-8">{statRows(branchSummary).slice(0, 4).map((item) => <PdfBranchStatCard key={item.label} item={item} staffRows={getStaffSourceRows(branchTotalPersonDetailedSummary, item.key)} isOpen={Boolean(branchSourceBreakdownOpen[item.key])} />)}</div>
       <div className="border-2 border-slate-900 rounded-xl pt-1 pb-9 px-6 mb-8 bg-slate-50"><div className="text-sm font-bold text-slate-900 uppercase tracking-widest mb-1">受注残合計 (レンタル・特価見込総額)</div><div className="text-5xl font-bold text-slate-900">¥{yenK(branchSummary.rentalBacklogTotalAmt)}千円</div></div>
       <div className="mt-auto pt-5 text-right text-[10px] text-slate-900 font-bold border-t border-slate-200">太陽シルバーサービス株式会社 {branchName} 進捗管理報告</div>
     </div>
@@ -1006,6 +1039,7 @@ const MainApp = ({ branchSetting }) => {
   const [rankingStaffId, setRankingStaffId] = useState('all');
   const [branchTotalStaffId, setBranchTotalStaffId] = useState('all');
   const [branchTotalSourceFilter, setBranchTotalSourceFilter] = useState('すべて');
+  const [branchSourceBreakdownOpen, setBranchSourceBreakdownOpen] = useState({});
   const [listSourceFilter, setListSourceFilter] = useState('すべて');
   const [notification, setNotification] = useState(null);
   const [newStaffName, setNewStaffName] = useState('');
@@ -1334,6 +1368,16 @@ const MainApp = ({ branchSetting }) => {
     showMessage('次月へ移行しました');
   }, [basePath, currentMonth, listOrders, showMessage]);
 
+  const handleMoveCheckedToPrevious = useCallback(async () => {
+    const previousMonth = getOffsetMonth(currentMonth, -1);
+    const toMove = listOrders.filter((o) => o.isCarryOver);
+    if (!toMove.length) return showMessage('対象がありません');
+    const batch = writeBatch(db);
+    toMove.forEach((o) => batch.update(doc(db, ...basePath, 'orders', o.id), { targetMonth: previousMonth, isCarryOver: false }));
+    await batch.commit();
+    showMessage('前月へ戻しました');
+  }, [basePath, currentMonth, listOrders, showMessage]);
+
   const summarize = useCallback((targetOrders) => {
     const init = () => ({ doneCnt: 0, doneAmt: 0, forecastCnt: 0, forecastAmt: 0, sourceCount: createSourceCount() });
     const summary = { rentalNew: init(), bed: init(), renovation: init(), equipment: init(), otherSales: init(), rentalBacklogTotalAmt: 0 };
@@ -1395,6 +1439,9 @@ const MainApp = ({ branchSetting }) => {
 
   const branchTotalPersonDetailedSummary = useMemo(() => staffSummary(branchTotalSourceFilter), [branchTotalSourceFilter, staffSummary]);
   const personDetailedSummary = useMemo(() => staffSummary('すべて'), [staffSummary]);
+  const toggleBranchSourceBreakdown = useCallback((key) => {
+    setBranchSourceBreakdownOpen((prev) => ({ ...prev, [key]: !prev[key] }));
+  }, []);
 
   const trendData = useMemo(() => {
     const months = getFiscalYearMonths(currentMonth);
@@ -1411,10 +1458,9 @@ const MainApp = ({ branchSetting }) => {
       target[key][index][sourceKey] += value;
     };
     for (const o of targetOrders) {
-      if (!isCompletedStatus(o.status)) continue;
       const cat = TREND_CAT_KEY[o.category];
       if (!cat) continue;
-      const value = cat.isAmt ? Number(o.amount || 0) : 1;
+      const value = 1;
       const accountingMonth = getOrderAccountingMonth(o);
       const index = monthToIndex[accountingMonth];
       if (index !== undefined) addToSeries(series, index, cat.key, value, o.source);
@@ -1531,7 +1577,7 @@ const MainApp = ({ branchSetting }) => {
   return (
     <div id="app-root" className="min-h-screen bg-slate-50 text-slate-800 font-sans pb-12 antialiased" style={{ zoom: zoomLevel }}>
       {notification && <div className="fixed top-6 left-1/2 -translate-x-1/2 z-[100] px-6 py-3 rounded-xl shadow-xl font-bold text-sm bg-slate-900 text-white flex items-center gap-3 border border-white/10 print:hidden"><CheckCircle2 size={18} className="text-emerald-400" />{notification}</div>}
-      <PDFTemplate branchName={BRANCH_NAME} currentMonth={currentMonth} branchSummary={branchSummary} branchTotalPersonDetailedSummary={branchTotalPersonDetailedSummary} />
+      <PDFTemplate branchName={BRANCH_NAME} currentMonth={currentMonth} branchSummary={branchSummary} branchTotalPersonDetailedSummary={branchTotalPersonDetailedSummary} branchSourceBreakdownOpen={branchSourceBreakdownOpen} />
       <header className="bg-white border-b border-slate-100 sticky top-0 z-50 shadow-sm print:hidden">
         <div className="max-w-6xl mx-auto px-5 h-20 flex items-center justify-between">
           <div className="flex items-center gap-4"><ShieldCheck size={32} className="text-blue-500 hidden sm:block" /><div><h1 className="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight">受注残・進捗管理表</h1><p className="text-xs font-bold text-blue-500">{BRANCH_NAME}</p></div></div>
@@ -1551,14 +1597,14 @@ const MainApp = ({ branchSetting }) => {
         {activeTab === 'new_entry' && <section className="space-y-6"><SectionHeader icon={Plus} title="新規案件登録" subtitle="New Entry" /><NewEntryForm salespersons={salespersons} onSubmit={handleEntrySubmit} selectedStaffId={entryStaffId} onStaffChange={setEntryStaffId} /><div className="space-y-4 pt-6"><h3 className="text-xl font-bold text-slate-800 flex items-center gap-2 px-2"><div className="w-2.5 h-6 bg-blue-400 rounded-full" />本日の登録内容</h3><OrderTable items={entryStaffOrders} onUpdate={updateOrderField} onDelete={deleteOrder} salespersons={salespersons} /></div></section>}
         {activeTab === 'branch_total' && <section className="space-y-4">
           <div className="flex justify-between items-start mb-2 print:hidden"><SectionHeader icon={PieChart} title={`${BRANCH_NAME} 合計・見込み`} subtitle="Branch Status" /><div className="flex items-center gap-2"><button onClick={handleExportPDF} disabled={isGeneratingPDF} className="bg-blue-600 text-white px-5 py-3 rounded-xl font-bold shadow-lg hover:bg-blue-700 flex items-center gap-3 disabled:opacity-50">{isGeneratingPDF ? <Loader2 size={20} className="animate-spin" /> : <FileDown size={20} />}印刷</button><button onClick={() => setShowBranchPreview(true)} className="bg-emerald-500 text-white px-4 py-2.5 rounded-xl font-bold text-sm shadow-md hover:bg-emerald-600 flex items-center gap-2"><Users size={18} />全体プレビュー</button></div></div>
-          <BranchSourceFilter currentFilter={branchTotalSourceFilter} onChange={setBranchTotalSourceFilter} prefix="branch" /><BranchSummaryCards summary={branchSummary} /><BacklogTotalCard totalAmt={branchSummary.rentalBacklogTotalAmt} />
+          <BranchSourceFilter currentFilter={branchTotalSourceFilter} onChange={setBranchTotalSourceFilter} prefix="branch" /><BranchSummaryCards summary={branchSummary} staffBreakdown={branchTotalPersonDetailedSummary} openMap={branchSourceBreakdownOpen} onToggle={toggleBranchSourceBreakdown} /><BacklogTotalCard totalAmt={branchSummary.rentalBacklogTotalAmt} />
           <div className="flex bg-white p-2 rounded-xl border border-slate-200 shadow-sm gap-2 overflow-x-auto mt-8 mb-2 print:hidden"><button onClick={() => setBranchTotalStaffId('all')} className={`px-6 py-2 rounded-lg font-bold text-sm whitespace-nowrap ${branchTotalStaffId === 'all' ? 'bg-slate-700 text-white shadow' : 'text-slate-600 hover:bg-slate-50'}`}>全員表示</button>{salespersons.map((staff) => <button key={staff.id} onClick={() => setBranchTotalStaffId(staff.id)} className={`px-6 py-2 rounded-lg font-bold text-sm whitespace-nowrap ${branchTotalStaffId === staff.id ? 'bg-blue-500 text-white shadow' : 'text-slate-600 hover:bg-slate-50'}`}>{staff.name}</button>)}</div>
           <Card noPadding className="border border-slate-200 shadow-lg rounded-2xl overflow-hidden"><div className="bg-blue-500 text-white px-5 py-3 font-bold text-base uppercase tracking-widest flex items-center gap-3"><TrendingUp size={18} />進捗ステータス詳細</div><ProgressTable data={branchTotalPersonDetailedSummary} staffIdFilter={branchTotalStaffId} /></Card>
-          {showBranchPreview && <PreviewModal onClose={() => setShowBranchPreview(false)} onExport={handleExportPDF} isGeneratingPDF={isGeneratingPDF} branchSummary={branchSummary} data={branchTotalPersonDetailedSummary} branchTotalSourceFilter={branchTotalSourceFilter} setBranchTotalSourceFilter={setBranchTotalSourceFilter} />}
+          {showBranchPreview && <PreviewModal onClose={() => setShowBranchPreview(false)} onExport={handleExportPDF} isGeneratingPDF={isGeneratingPDF} branchSummary={branchSummary} data={branchTotalPersonDetailedSummary} branchTotalSourceFilter={branchTotalSourceFilter} setBranchTotalSourceFilter={setBranchTotalSourceFilter} branchSourceBreakdownOpen={branchSourceBreakdownOpen} onToggleBranchSourceBreakdown={toggleBranchSourceBreakdown} />}
         </section>}
         {activeTab === 'summary' && <section className="space-y-6"><div className="flex justify-between items-end"><SectionHeader icon={BarChart3} title={`${BRANCH_NAME} 目標進捗`} subtitle="Monthly Target" /><AlertNote /></div><RankingInsightsPanel insights={rankingInsights} salespersons={salespersons} period={rankingPeriod} setPeriod={setRankingPeriod} staffId={rankingStaffId} setStaffId={setRankingStaffId} /><div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">{personDetailedSummary.map((data) => <ProgressCard key={data.id} data={data} />)}</div></section>}
-        {activeTab === 'trend' && <section className="space-y-6"><div className="flex justify-between items-end"><SectionHeader icon={LineChart} title="今年年度（4月〜3月）の実績推移" subtitle="Fiscal Year Trend" /><AlertNote /></div><RankingInsightsPanel insights={rankingInsights} compact salespersons={salespersons} period={rankingPeriod} setPeriod={setRankingPeriod} staffId={rankingStaffId} setStaffId={setRankingStaffId} /><div className="flex bg-white p-2.5 rounded-2xl border border-slate-200 shadow-md gap-3 overflow-x-auto"><button onClick={() => setTrendStaffId('overall')} className={`px-8 py-3 rounded-xl font-bold text-lg whitespace-nowrap ${trendStaffId === 'overall' ? 'bg-slate-700 text-white shadow-lg' : 'text-slate-600 hover:bg-slate-50'}`}>{BRANCH_NAME} 全体</button>{salespersons.map((staff) => <button key={staff.id} onClick={() => setTrendStaffId(staff.id)} className={`px-8 py-3 rounded-xl font-bold text-lg whitespace-nowrap ${trendStaffId === staff.id ? 'bg-blue-500 text-white shadow-lg' : 'text-slate-600 hover:bg-slate-50'}`}>{staff.name}</button>)}</div><div className="grid grid-cols-1 md:grid-cols-2 gap-6"><StackedBarChart data={trendData.series.rentalNew} previousData={trendData.previousSeries.rentalNew} labels={trendData.months} currentMonth={currentMonth} title="レンタル新規 (件)" unit="件" yAxisMax={trendStaffId === 'overall' ? chartConfig.overall.rentalNew : chartConfig.personal.rentalNew} /><StackedBarChart data={trendData.series.bed} previousData={trendData.previousSeries.bed} labels={trendData.months} currentMonth={currentMonth} title="特価台数 (台)" unit="台" yAxisMax={trendStaffId === 'overall' ? chartConfig.overall.bed : chartConfig.personal.bed} /><StackedBarChart data={trendData.series.renovation} previousData={trendData.previousSeries.renovation} labels={trendData.months} currentMonth={currentMonth} title="住宅改修 (金額)" unit="円" isAmount yAxisMax={trendStaffId === 'overall' ? chartConfig.overall.renovation : chartConfig.personal.renovation} /><StackedBarChart data={trendData.series.equipment} previousData={trendData.previousSeries.equipment} labels={trendData.months} currentMonth={currentMonth} title="特定福祉用具販売 (金額)" unit="円" isAmount yAxisMax={trendStaffId === 'overall' ? chartConfig.overall.equipment : chartConfig.personal.equipment} /></div></section>}
-        {activeTab === 'list' && <section className="space-y-4"><ListToolbar currentYear={currentYear} currentMonthNum={currentMonthNum} currentMonth={currentMonth} setCurrentMonth={setCurrentMonth} /><div className="flex flex-col md:flex-row gap-4 items-center justify-between"><StaffFilter salespersons={salespersons} value={listStaffId} setValue={(v) => { setListStaffId(v); setSelectedCategoryFilter('すべて'); }} overallLabel={`${BRANCH_NAME} 全体`} /><button onClick={handleCarryOverChecked} className="w-full md:w-auto text-white bg-blue-500 px-6 py-2.5 rounded-xl font-bold text-sm flex items-center justify-center gap-2 shadow-md hover:bg-blue-600"><RotateCcw size={18} />次月へ移行</button></div><BranchSourceFilter currentFilter={listSourceFilter} onChange={setListSourceFilter} prefix="list" /><CategoryFilter items={listOrders} selected={selectedCategoryFilter} onSelect={setSelectedCategoryFilter} /><OrderTable items={listOrders} onUpdate={updateOrderField} onDelete={deleteOrder} salespersons={salespersons} showStaffName={listStaffId === 'all'} selectedCategory={selectedCategoryFilter} onAddCategory={handleAddListRow} /></section>}
+        {activeTab === 'trend' && <section className="space-y-6"><div className="flex justify-between items-end"><SectionHeader icon={LineChart} title="今年年度（4月〜3月）の見込み推移" subtitle="Fiscal Year Trend" /></div><RankingInsightsPanel insights={rankingInsights} compact salespersons={salespersons} period={rankingPeriod} setPeriod={setRankingPeriod} staffId={rankingStaffId} setStaffId={setRankingStaffId} /><div className="flex bg-white p-2.5 rounded-2xl border border-slate-200 shadow-md gap-3 overflow-x-auto"><button onClick={() => setTrendStaffId('overall')} className={`px-8 py-3 rounded-xl font-bold text-lg whitespace-nowrap ${trendStaffId === 'overall' ? 'bg-slate-700 text-white shadow-lg' : 'text-slate-600 hover:bg-slate-50'}`}>{BRANCH_NAME} 全体</button>{salespersons.map((staff) => <button key={staff.id} onClick={() => setTrendStaffId(staff.id)} className={`px-8 py-3 rounded-xl font-bold text-lg whitespace-nowrap ${trendStaffId === staff.id ? 'bg-blue-500 text-white shadow-lg' : 'text-slate-600 hover:bg-slate-50'}`}>{staff.name}</button>)}</div><div className="grid grid-cols-1 md:grid-cols-2 gap-6"><StackedBarChart data={trendData.series.rentalNew} previousData={trendData.previousSeries.rentalNew} labels={trendData.months} currentMonth={currentMonth} title="レンタル新規 見込み(件)" unit="件" yAxisMax={trendStaffId === 'overall' ? chartConfig.overall.rentalNew : chartConfig.personal.rentalNew} /><StackedBarChart data={trendData.series.bed} previousData={trendData.previousSeries.bed} labels={trendData.months} currentMonth={currentMonth} title="特価台数 見込み(台)" unit="台" yAxisMax={trendStaffId === 'overall' ? chartConfig.overall.bed : chartConfig.personal.bed} /><StackedBarChart data={trendData.series.renovation} previousData={trendData.previousSeries.renovation} labels={trendData.months} currentMonth={currentMonth} title="住宅改修 見込み(件)" unit="件" /><StackedBarChart data={trendData.series.equipment} previousData={trendData.previousSeries.equipment} labels={trendData.months} currentMonth={currentMonth} title="特定福祉用具販売 見込み(件)" unit="件" /></div></section>}
+        {activeTab === 'list' && <section className="space-y-4"><ListToolbar currentYear={currentYear} currentMonthNum={currentMonthNum} currentMonth={currentMonth} setCurrentMonth={setCurrentMonth} /><div className="flex flex-col md:flex-row gap-4 items-center justify-between"><StaffFilter salespersons={salespersons} value={listStaffId} setValue={(v) => { setListStaffId(v); setSelectedCategoryFilter('すべて'); }} overallLabel={`${BRANCH_NAME} 全体`} /><div className="flex flex-col sm:flex-row gap-2 w-full md:w-auto"><button onClick={handleMoveCheckedToPrevious} className="w-full md:w-auto text-slate-700 bg-white border border-slate-200 px-6 py-2.5 rounded-xl font-bold text-sm flex items-center justify-center gap-2 shadow-sm hover:bg-slate-50"><RotateCcw size={18} className="-scale-x-100" />前月へ戻す</button><button onClick={handleCarryOverChecked} className="w-full md:w-auto text-white bg-blue-500 px-6 py-2.5 rounded-xl font-bold text-sm flex items-center justify-center gap-2 shadow-md hover:bg-blue-600"><RotateCcw size={18} />次月へ移行</button></div></div><BranchSourceFilter currentFilter={listSourceFilter} onChange={setListSourceFilter} prefix="list" /><CategoryFilter items={listOrders} selected={selectedCategoryFilter} onSelect={setSelectedCategoryFilter} /><OrderTable items={listOrders} onUpdate={updateOrderField} onDelete={deleteOrder} salespersons={salespersons} showStaffName={listStaffId === 'all'} selectedCategory={selectedCategoryFilter} onAddCategory={handleAddListRow} /></section>}
         {activeTab === 'compliance' && <Usage />}
         {activeTab === 'master' && <section className="space-y-6"><SectionHeader icon={Settings} title={`${BRANCH_NAME} マスタ設定`} subtitle="Master Settings" /><MasterSetupStatusCard isConfirmed={isMasterConfirmed} staffCount={salespersons.length} onConfirm={handleConfirmMasterSettings} /><div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">{salespersons.filter((s) => s?.id).map((s, idx) => <StaffMemberItem key={s.id} staff={s} isFirst={idx === 0} isLast={idx === salespersons.length - 1} onMove={handleMoveStaff} onUpdate={updateStaffField} onDelete={async (id) => { await deleteDoc(doc(db, ...basePath, 'staff', String(id))); showMessage('スタッフを削除しました'); }} />)}<AddStaffCard value={newStaffName} setValue={setNewStaffName} onAdd={async () => { if (!newStaffName) return; const newId = Date.now(); await setDoc(doc(db, ...basePath, 'staff', String(newId)), { id: newId, name: newStaffName, budgetRenovation: 0, targetRenovationCnt: 0, budgetEquipment: 0, targetEquipmentCnt: 0, targetRentalNew: 0, targetBedNew: 0, orderIndex: salespersons.length }); setNewStaffName(''); showMessage('追加しました'); }} /></div><ChartConfigCard chartConfig={chartConfig} onSave={handleUpdateChartConfig} /><DataPortabilityCard onExport={handleExportData} onImportClick={() => importFileRef.current?.click()} importRef={importFileRef} onImport={handleImportData} loginHistory={loginHistory} /></section>}
       </main>
@@ -1796,7 +1842,7 @@ const DataPortabilityCard = ({ onExport, onImportClick, importRef, onImport, log
   </Card>
 );
 
-const PreviewModal = ({ onClose, onExport, isGeneratingPDF, branchSummary, data, branchTotalSourceFilter, setBranchTotalSourceFilter }) => <div className="fixed inset-0 z-[100] bg-slate-900/80 backdrop-blur-sm p-4 sm:p-8 overflow-y-auto flex items-start justify-center modal-overlay"><div className="bg-white w-full max-w-[1400px] rounded-2xl shadow-2xl overflow-hidden my-4 sm:my-8 modal-content"><div className="flex justify-between items-center p-4 sm:p-6 border-b border-slate-200 bg-slate-50 sticky top-0 z-10 print:hidden"><h2 className="text-2xl font-bold text-slate-800 flex items-center gap-2"><PieChart className="text-blue-500" />営業所合計 プレビュー</h2><div className="flex items-center gap-2"><button onClick={onExport} className="bg-blue-600 text-white px-6 py-2 rounded-xl font-bold shadow-sm flex items-center gap-2">{isGeneratingPDF ? <Loader2 size={18} className="animate-spin" /> : <FileDown size={18} />}印刷</button><button onClick={onClose} className="bg-slate-200 hover:bg-slate-300 text-slate-700 px-6 py-2 rounded-xl font-bold shadow-sm">閉じる</button></div></div><div className="p-4 sm:p-6 space-y-6"><BranchSourceFilter currentFilter={branchTotalSourceFilter} onChange={setBranchTotalSourceFilter} prefix="preview" /><BranchSummaryCards summary={branchSummary} /><BacklogTotalCard totalAmt={branchSummary.rentalBacklogTotalAmt} /><Card noPadding className="border border-slate-200 shadow-xl rounded-2xl overflow-hidden"><div className="bg-blue-500 text-white px-5 py-3 font-bold text-base uppercase tracking-widest flex items-center gap-3"><TrendingUp size={18} />進捗ステータス詳細（全所員一覧）</div><ProgressTable data={data} staffIdFilter="all" /></Card></div></div></div>;
+const PreviewModal = ({ onClose, onExport, isGeneratingPDF, branchSummary, data, branchTotalSourceFilter, setBranchTotalSourceFilter, branchSourceBreakdownOpen = {}, onToggleBranchSourceBreakdown = () => {} }) => <div className="fixed inset-0 z-[100] bg-slate-900/80 backdrop-blur-sm p-4 sm:p-8 overflow-y-auto flex items-start justify-center modal-overlay"><div className="bg-white w-full max-w-[1400px] rounded-2xl shadow-2xl overflow-hidden my-4 sm:my-8 modal-content"><div className="flex justify-between items-center p-4 sm:p-6 border-b border-slate-200 bg-slate-50 sticky top-0 z-10 print:hidden"><h2 className="text-2xl font-bold text-slate-800 flex items-center gap-2"><PieChart className="text-blue-500" />営業所合計 プレビュー</h2><div className="flex items-center gap-2"><button onClick={onExport} className="bg-blue-600 text-white px-6 py-2 rounded-xl font-bold shadow-sm flex items-center gap-2">{isGeneratingPDF ? <Loader2 size={18} className="animate-spin" /> : <FileDown size={18} />}印刷</button><button onClick={onClose} className="bg-slate-200 hover:bg-slate-300 text-slate-700 px-6 py-2 rounded-xl font-bold shadow-sm">閉じる</button></div></div><div className="p-4 sm:p-6 space-y-6"><BranchSourceFilter currentFilter={branchTotalSourceFilter} onChange={setBranchTotalSourceFilter} prefix="preview" /><BranchSummaryCards summary={branchSummary} staffBreakdown={data} openMap={branchSourceBreakdownOpen} onToggle={onToggleBranchSourceBreakdown} /><BacklogTotalCard totalAmt={branchSummary.rentalBacklogTotalAmt} /><Card noPadding className="border border-slate-200 shadow-xl rounded-2xl overflow-hidden"><div className="bg-blue-500 text-white px-5 py-3 font-bold text-base uppercase tracking-widest flex items-center gap-3"><TrendingUp size={18} />進捗ステータス詳細（全所員一覧）</div><ProgressTable data={data} staffIdFilter="all" /></Card></div></div></div>;
 
 const Usage = () => <section className="space-y-6"><SectionHeader icon={Info} title="アプリの使い方・活用術" subtitle="How to use & Tips" /><Card className="p-6 sm:p-10 space-y-10 shadow-md border-slate-200 text-slate-800"><div className="bg-blue-50 border border-blue-100 rounded-xl p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4"><div><h3 className="text-lg font-bold text-slate-800 mb-1">印刷用の説明書</h3><p className="text-sm font-bold text-slate-600 leading-relaxed">配布先の方は localhost ではなく、公開URLの説明書を開いてください。</p></div><a href="https://solar-silver-progress-app.netlify.app/manual.html" target="_blank" rel="noreferrer" className="shrink-0 bg-blue-600 text-white px-5 py-3 rounded-xl font-bold text-sm shadow-md hover:bg-blue-700 text-center">説明書を開く</a></div><div><h3 className="text-lg font-bold border-l-4 border-slate-800 pl-3 mb-4">最初にやるべきこと</h3><p className="text-sm pl-6 font-bold leading-relaxed text-slate-700">「マスタ設定」タブを開き、各スタッフの名前を追加した上で、今月の「予算」や「目標数値」を入力してください。<br />これにより、目標進捗や営業所合計のグラフが正しく描画されるようになります。</p></div><div className="border-b border-slate-100 pb-6"><h3 className="text-xl font-bold flex items-center gap-2 mb-4">正確な数値管理のために</h3><p className="font-bold leading-relaxed text-sm sm:text-base text-slate-800">正確な数値を算出するには、日々の受注案件を確実に入力することが重要です。入力を徹底することで、営業所全体の着地予測や個人の目標達成度が正しく可視化されます。</p></div><div className="space-y-6"><h3 className="text-lg font-bold border-l-4 border-slate-800 pl-3">各機能の役割と使い方</h3>{[[Plus, '登録', '新規案件や追加案件を入力します。別商品交換の場合は納品と回収の差額の金額を入力してください。'], [List, '受注残一覧', '登録案件の状態を管理します。担当者やカテゴリごとに案件を絞り込めます。'], [PieChart, '営業所合計', '営業所全体の今月の実績と見込みを自動集計します。'], [BarChart3, '目標進捗', 'マスタで設定した個人目標に対する現在の達成状況を確認できます。'], [LineChart, '推移グラフ', '4月始まりの今年度の月別実績推移を表示します。']].map(([Icon, title, text]) => <div key={title} className="space-y-2"><p className="font-bold flex items-center gap-2 text-slate-800"><Icon size={18} className="text-slate-700" />{title}</p><p className="text-sm pl-6 leading-relaxed font-bold text-slate-700">{text}</p></div>)}</div></Card></section>;
 
