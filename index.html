@@ -450,6 +450,9 @@ const SetupScreen = ({ onComplete }) => {
         <div className="flex justify-center mb-6"><div className="w-16 h-16 bg-blue-100 rounded-2xl flex items-center justify-center text-blue-500"><Settings size={32} /></div></div>
         <h1 className="text-2xl font-bold text-center text-slate-800 mb-2">端末設定</h1>
         <p className="text-sm text-center text-slate-600 mb-8 font-bold leading-relaxed">初回アクセス時の設定です。<br />営業所コードと共有アクセスコードを入力してください。</p>
+        <div className="mb-5 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs font-bold leading-relaxed text-amber-800">
+          以前の画面が出ない場合も、前と同じ営業所コードとアクセスコードを入力すると保存済みデータを読み込めます。
+        </div>
         <form onSubmit={handleSetup} className="space-y-5">
           <input value={branchCode} onChange={(e) => { setBranchCode(e.target.value); setError(''); }} placeholder="設定コード (例: 行橋)" className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3.5 font-bold text-lg outline-none focus:border-blue-400 text-center shadow-sm" {...JAPANESE_TEXT_INPUT_PROPS} />
           <input type="password" value={accessCode} onChange={(e) => { setAccessCode(e.target.value); setError(''); }} placeholder="アクセスコード（5文字以上）" className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3.5 font-bold text-lg outline-none focus:border-blue-400 text-center shadow-sm" />
