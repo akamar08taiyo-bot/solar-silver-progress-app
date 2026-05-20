@@ -948,19 +948,38 @@ const PdfBranchStatCard = ({ item }) => (
   </div>
 );
 
-const PDF_BREAKDOWN_ROWS_PER_PAGE = 16;
+const PDF_BREAKDOWN_PAGE_UNITS = 34;
+const PDF_BREAKDOWN_SECTION_BASE_UNITS = 4;
+const PDF_BREAKDOWN_LONG_SECTION_ROWS = PDF_BREAKDOWN_PAGE_UNITS - PDF_BREAKDOWN_SECTION_BASE_UNITS;
 
-const buildPdfBreakdownPages = (branchSummary, branchTotalPersonDetailedSummary) =>
+const buildPdfBreakdownSections = (branchSummary, branchTotalPersonDetailedSummary) =>
   statRows(branchSummary).slice(0, 4).flatMap((item) => {
     const rows = getStaffSourceRows(branchTotalPersonDetailedSummary, item.key);
     if (!rows.length) return [];
-    const chunks = chunkArray(rows, PDF_BREAKDOWN_ROWS_PER_PAGE);
     const totals = rows.reduce((acc, row) => ({
       totalCnt: acc.totalCnt + Number(row.totalCnt || 0),
       totalAmt: acc.totalAmt + Number(row.totalAmt || 0)
     }), { totalCnt: 0, totalAmt: 0 });
+    if (rows.length <= PDF_BREAKDOWN_LONG_SECTION_ROWS) return [{ item, rows, totals, pageIndex: 0, pageTotal: 1 }];
+    const chunks = chunkArray(rows, PDF_BREAKDOWN_LONG_SECTION_ROWS);
     return chunks.map((chunk, pageIndex) => ({ item, rows: chunk, totals, pageIndex, pageTotal: chunks.length }));
   });
+
+const buildPdfBreakdownPages = (branchSummary, branchTotalPersonDetailedSummary) => {
+  const pages = [];
+  let current = { sections: [], units: 0 };
+  for (const section of buildPdfBreakdownSections(branchSummary, branchTotalPersonDetailedSummary)) {
+    const sectionUnits = PDF_BREAKDOWN_SECTION_BASE_UNITS + section.rows.length;
+    if (current.sections.length && current.units + sectionUnits > PDF_BREAKDOWN_PAGE_UNITS) {
+      pages.push(current.sections);
+      current = { sections: [], units: 0 };
+    }
+    current.sections.push(section);
+    current.units += sectionUnits;
+  }
+  if (current.sections.length) pages.push(current.sections);
+  return pages;
+};
 
 const PdfBreakdownTable = ({ rows }) => (
   <div style={{ borderTop: pdfCellBorder, borderLeft: pdfCellBorder, width: '100%', boxSizing: 'border-box' }}>
@@ -979,6 +998,18 @@ const PdfBreakdownTable = ({ rows }) => (
       </div>
     ))}
   </div>
+);
+
+const PdfBreakdownSection = ({ section }) => (
+  <section style={{ breakInside: 'avoid', pageBreakInside: 'avoid', marginBottom: '7mm' }}>
+    <div style={{ marginBottom: '3mm' }}>
+      <div style={{ fontSize: '16px', fontWeight: 950, lineHeight: 1.2, color: '#0f172a' }}>{section.item.label} 包括・居宅・連携室</div>
+      <div style={{ marginTop: '1.5mm', fontSize: '11px', fontWeight: 900, lineHeight: 1.35, color: '#334155' }}>
+        合計: {formatBreakdownTotal(section.item.key, section.totals.totalCnt, section.totals.totalAmt)}　内訳: {formatSourceBreakdown(section.item.sourceCount)}　{section.pageIndex + 1}/{section.pageTotal}ページ
+      </div>
+    </div>
+    <PdfBreakdownTable rows={section.rows} />
+  </section>
 );
 
 const PdfHeader = ({ branchName, currentMonth, compact = false }) => (
@@ -1020,15 +1051,15 @@ const PDFTemplate = React.forwardRef(({ branchName, currentMonth, branchSummary,
       <div className="border-2 border-slate-900 rounded-xl pt-1 pb-9 px-6 mb-8 bg-slate-50"><div className="text-sm font-bold text-slate-900 uppercase tracking-widest mb-1">受注残合計 (レンタル・特価見込総額)</div><div className="text-5xl font-bold text-slate-900">¥{yenK(branchSummary.rentalBacklogTotalAmt)}千円</div></div>
       <div className="mt-auto pt-5 text-right text-[10px] text-slate-900 font-bold border-t border-slate-200">太陽シルバーサービス株式会社 {branchName} 進捗管理報告</div>
     </div>
-    {breakdownPages.map((page, index) => (
-      <div key={`breakdown-page-${page.item.key}-${page.pageIndex}`} className="pdf-page p-[12mm]" style={{ width: '210mm', height: '297mm', boxSizing: 'border-box', display: 'flex', flexDirection: 'column', backgroundColor: '#fff', letterSpacing: 0, fontKerning: 'normal', overflow: 'hidden' }}>
+    {breakdownPages.map((sections, index) => (
+      <div key={`breakdown-page-${index}`} className="pdf-page p-[12mm]" style={{ width: '210mm', height: '297mm', boxSizing: 'border-box', display: 'flex', flexDirection: 'column', backgroundColor: '#fff', letterSpacing: 0, fontKerning: 'normal', overflow: 'hidden' }}>
         <PdfHeader branchName={branchName} currentMonth={currentMonth} compact />
-        <div className="mb-5">
+        <div className="mb-4">
           <h2 className="text-2xl font-bold border-l-8 border-slate-800 pl-4">営業員別内訳</h2>
-          <div className="mt-2 text-lg font-bold text-slate-900">{page.item.label} 包括・居宅・連携室</div>
-          <div className="mt-1 text-sm font-bold text-slate-700">合計: {formatBreakdownTotal(page.item.key, page.totals.totalCnt, page.totals.totalAmt)}　内訳: {formatSourceBreakdown(page.item.sourceCount)}　{page.pageIndex + 1}/{page.pageTotal}ページ</div>
         </div>
-        <PdfBreakdownTable rows={page.rows} />
+        <div style={{ flex: '1 1 auto' }}>
+          {sections.map((section) => <PdfBreakdownSection key={`${section.item.key}-${section.pageIndex}`} section={section} />)}
+        </div>
         <div className="mt-auto pt-4 text-right text-[10px] text-slate-900 font-bold border-t border-slate-200">太陽シルバーサービス株式会社 {branchName} 進捗管理報告 / 営業員別内訳 {index + 1}/{breakdownPages.length}</div>
       </div>
     ))}
