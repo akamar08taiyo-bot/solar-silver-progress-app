@@ -1759,24 +1759,31 @@ const SourceRatioPie = ({ title, sourceCount }) => {
   );
 };
 
-const SourceRatioPanel = ({ title, groups, compact = false }) => (
-  <details className="border border-slate-200 rounded-2xl bg-slate-50/60 overflow-hidden">
-    <summary className="cursor-pointer list-none px-4 py-3 flex items-center justify-between gap-3 bg-white hover:bg-slate-50">
+const SourceRatioPanel = ({ title, groups, compact = false }) => {
+  const [isOpen, setIsOpen] = useState(false);
+  return (
+  <div className="border border-slate-200 rounded-2xl bg-slate-50/60 overflow-hidden">
+    <button type="button" onClick={() => setIsOpen((prev) => !prev)} className="w-full px-4 py-3 flex items-center justify-between gap-3 bg-white hover:bg-slate-50 text-left">
       <div>
         <h4 className="text-base font-extrabold text-slate-900">包括・居宅・連携室割合</h4>
         <p className="text-xs font-bold text-slate-500">{title}の各項目ごとの依頼割合を円グラフで確認できます</p>
       </div>
-      <span className="text-xs font-extrabold text-blue-600 bg-blue-50 px-3 py-1.5 rounded-lg whitespace-nowrap">開く</span>
-    </summary>
+      <span className={`text-xs font-extrabold px-3 py-1.5 rounded-lg whitespace-nowrap ${isOpen ? 'bg-slate-800 text-white' : 'bg-blue-50 text-blue-600'}`}>{isOpen ? '閉じる' : '開く'}</span>
+    </button>
+    {isOpen && (
     <div className={`border-t border-slate-100 p-4 grid gap-4 ${compact ? 'grid-cols-1 lg:grid-cols-2' : 'grid-cols-1 md:grid-cols-2 xl:grid-cols-3'}`}>
       {groups.map((group) => <SourceRatioPie key={`${title}-${group.title}`} title={group.title} sourceCount={group.sourceCount} />)}
     </div>
-  </details>
-);
+    )}
+  </div>
+  );
+};
 
-const RankingInsightsPanel = ({ insights, compact = false, salespersons = [], period = 'fiscalYear', setPeriod = () => {}, staffId = 'all', setStaffId = () => {} }) => (
-  <details className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden print:hidden">
-    <summary className="cursor-pointer list-none px-5 py-4 flex items-center justify-between gap-4 hover:bg-slate-50">
+const RankingInsightsPanel = ({ insights, compact = false, salespersons = [], period = 'fiscalYear', setPeriod = () => {}, staffId = 'all', setStaffId = () => {} }) => {
+  const [isOpen, setIsOpen] = useState(false);
+  return (
+  <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden print:hidden">
+    <button type="button" onClick={() => setIsOpen((prev) => !prev)} className="w-full px-5 py-4 flex items-center justify-between gap-4 hover:bg-slate-50 text-left">
       <div className="flex items-center gap-3 min-w-0">
         <div className="w-12 h-12 rounded-xl bg-blue-50 text-blue-500 flex items-center justify-center shrink-0"><TrendingUp size={24} /></div>
         <div className="min-w-0">
@@ -1784,8 +1791,9 @@ const RankingInsightsPanel = ({ insights, compact = false, salespersons = [], pe
           <div className="text-sm font-bold text-slate-500 truncate">{insights.periodLabel} / {insights.branch.rankingLabel}を確認できます</div>
         </div>
       </div>
-      <span className="text-base font-extrabold text-blue-600 bg-blue-50 px-5 py-2.5 rounded-xl whitespace-nowrap">開く</span>
-    </summary>
+      <span className={`text-base font-extrabold px-5 py-2.5 rounded-xl whitespace-nowrap ${isOpen ? 'bg-slate-800 text-white' : 'bg-blue-50 text-blue-600'}`}>{isOpen ? '閉じる' : '開く'}</span>
+    </button>
+    {isOpen && (
     <div className="border-t border-slate-100 p-4 space-y-5">
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 bg-blue-50/60 border border-blue-100 rounded-2xl p-4">
         <RankingControlSelect label="期間" value={period} onChange={setPeriod}>
@@ -1796,6 +1804,7 @@ const RankingInsightsPanel = ({ insights, compact = false, salespersons = [], pe
           {salespersons.filter((staff) => staff?.id).map((staff) => <option key={staff.id} value={staff.id}>{staff.name}</option>)}
         </RankingControlSelect>
       </div>
+      <SourceRatioPanel title={insights.branch.title} groups={insights.branch.groups} compact={compact} />
       <section className="space-y-3">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <h3 className="text-sm font-extrabold text-slate-900">{insights.branch.title}</h3>
@@ -1804,7 +1813,6 @@ const RankingInsightsPanel = ({ insights, compact = false, salespersons = [], pe
         <div className="space-y-3">
           <h4 className="text-xs font-extrabold text-blue-700 tracking-widest uppercase">{insights.branch.rankingLabel}</h4>
           <RankingGroupGrid groups={insights.branch.groups} compact={compact} />
-          <SourceRatioPanel title={insights.branch.title} groups={insights.branch.groups} compact={compact} />
         </div>
       </section>
       {staffId === 'all' && <section className="space-y-3">
@@ -1832,8 +1840,10 @@ const RankingInsightsPanel = ({ insights, compact = false, salespersons = [], pe
         </div>
       </section>}
     </div>
-  </details>
-);
+    )}
+  </div>
+  );
+};
 
 const ProgressCard = ({ data }) => {
   const rows = [
