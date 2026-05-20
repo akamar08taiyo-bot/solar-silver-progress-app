@@ -592,8 +592,8 @@ const OrderRow = React.memo(({ order, onUpdate, onDelete, staffName, showStaffNa
   };
 
   return (
-    <tr className={`group transition-colors border-b border-slate-50 last:border-none ${order.isCarryOver ? 'bg-amber-50/30' : 'hover:bg-blue-50/20'}`}>
-      <td className="py-1 px-2 w-[22%]">
+    <tr className={`group transition-colors border-b border-slate-50 last:border-none ${order.isCarryOver ? 'bg-amber-50/30' : order.isMoveToPrevious ? 'bg-indigo-50/30' : 'hover:bg-blue-50/20'}`}>
+      <td className="py-1 px-2 w-[20%]">
         <div className="flex items-center gap-1.5 w-full">
           <div className="flex flex-col gap-0.5 shrink-0">
             {showStaffName && staffName && <span className="text-[10px] font-bold text-white bg-slate-500 px-1.5 py-0.5 rounded-sm text-center">{staffName}</span>}
@@ -604,7 +604,7 @@ const OrderRow = React.memo(({ order, onUpdate, onDelete, staffName, showStaffNa
           <AutoSaveInput value={order.customerName} saveId={order.id} saveField="customerName" onSave={onUpdate} className="w-full bg-transparent border-none outline-none font-bold text-sm text-slate-800 px-1 py-0.5 focus:bg-white focus:rounded min-w-0" />
         </div>
       </td>
-      <td className="py-1 px-2 w-[18%]"><AutoSaveInput value={order.careHomeName} saveId={order.id} saveField="careHomeName" placeholder="事業所名" onSave={onUpdate} className="w-full bg-transparent border-none outline-none text-xs text-slate-600 font-bold px-1 py-0.5 focus:bg-white focus:rounded" /></td>
+      <td className="py-1 px-2 w-[17%]"><AutoSaveInput value={order.careHomeName} saveId={order.id} saveField="careHomeName" placeholder="事業所名" onSave={onUpdate} className="w-full bg-transparent border-none outline-none text-xs text-slate-600 font-bold px-1 py-0.5 focus:bg-white focus:rounded" /></td>
       <td className="py-1 px-2 w-[12%] text-center">
         {RENTAL_CATEGORIES.includes(order.category) && order.category !== '特価ベッド' && (
           <div className="flex flex-col items-center gap-1">
@@ -616,10 +616,11 @@ const OrderRow = React.memo(({ order, onUpdate, onDelete, staffName, showStaffNa
           </div>
         )}
       </td>
-      <td className="py-1 px-2 w-[15%] text-right font-bold text-blue-500 text-sm"><AutoSaveInput type="number" value={order.amount} saveId={order.id} saveField="amount" onSave={onUpdate} className="w-full bg-transparent text-right outline-none px-1 py-0.5" /></td>
+      <td className="py-1 px-2 w-[14%] text-right font-bold text-blue-500 text-sm"><AutoSaveInput type="number" value={order.amount} saveId={order.id} saveField="amount" onSave={onUpdate} className="w-full bg-transparent text-right outline-none px-1 py-0.5" /></td>
       <td className="py-1 px-2 w-[12%] text-center"><select value={order.status} onChange={(e) => onUpdate(order.id, 'status', e.target.value)} className={`text-[11px] font-bold rounded px-1.5 py-0.5 shadow-sm appearance-none text-center ${isCompletedStatus(order.status) ? 'bg-emerald-500 text-white' : 'bg-slate-200 text-slate-700 border border-slate-300'}`}>{getStatusesByCategory(order.category).map((s) => <option key={s}>{s}</option>)}</select></td>
-      <td className="py-1 px-2 w-[8%] text-center align-middle"><div className="flex flex-col items-center justify-center"><span className="text-[9px] font-bold text-slate-600 leading-none mb-0.5">次月</span><input type="checkbox" checked={Boolean(order.isCarryOver)} onChange={(e) => onUpdate(order.id, 'isCarryOver', e.target.checked)} className="w-4 h-4 rounded text-blue-400 cursor-pointer" /></div></td>
-      <td className="py-1 px-2 w-[7%] text-right"><button onClick={() => onDelete(order.id)} className="text-slate-500 hover:text-red-500 transition-all p-1"><Trash2 size={16} /></button></td>
+      <td className="py-1 px-2 w-[7%] text-center align-middle"><div className="flex flex-col items-center justify-center"><span className="text-[9px] font-bold text-slate-600 leading-none mb-0.5">前月</span><input type="checkbox" checked={Boolean(order.isMoveToPrevious)} onChange={(e) => onUpdate(order.id, 'isMoveToPrevious', e.target.checked)} className="w-4 h-4 rounded text-indigo-500 cursor-pointer" /></div></td>
+      <td className="py-1 px-2 w-[7%] text-center align-middle"><div className="flex flex-col items-center justify-center"><span className="text-[9px] font-bold text-slate-600 leading-none mb-0.5">次月</span><input type="checkbox" checked={Boolean(order.isCarryOver)} onChange={(e) => onUpdate(order.id, 'isCarryOver', e.target.checked)} className="w-4 h-4 rounded text-blue-400 cursor-pointer" /></div></td>
+      <td className="py-1 px-2 w-[5%] text-right"><button onClick={() => onDelete(order.id)} className="text-slate-500 hover:text-red-500 transition-all p-1"><Trash2 size={16} /></button></td>
     </tr>
   );
 });
@@ -650,12 +651,12 @@ const OrderTable = React.memo(({ items, onUpdate, onDelete, salespersons = [], s
               <span className="font-bold opacity-95 text-sm ml-4 truncate">¥{list.reduce((s, o) => s + Number(o.amount || 0), 0).toLocaleString()}</span>
             </div>
             <div className="overflow-x-auto">
-              <table className="w-full text-left table-fixed min-w-[750px]">
+              <table className="w-full text-left table-fixed min-w-[820px]">
                 <tbody className="divide-y divide-slate-100">{list.map((o) => <OrderRow key={o.id} order={o} onUpdate={onUpdate} onDelete={onDelete} staffName={showStaffName ? staffMap[Number(o.salespersonId)] : null} showStaffName={showStaffName} />)}</tbody>
                 {onAddCategory && (
                   <tfoot>
                     <tr>
-                      <td colSpan="7" className="px-3 py-2 bg-slate-50/70">
+                      <td colSpan="8" className="px-3 py-2 bg-slate-50/70">
                         <button type="button" onClick={() => onAddCategory(cat)} className="w-full border-2 border-dashed border-slate-300 bg-white hover:bg-blue-50 hover:border-blue-300 text-slate-700 hover:text-blue-600 rounded-lg py-2 font-bold text-sm flex items-center justify-center gap-2 transition-all">
                           <Plus size={16} />この項目に行を追加
                         </button>
@@ -940,15 +941,14 @@ const PdfProgressCell = ({ p, col }) => {
   );
 };
 
-const PdfBranchStatCard = ({ item, staffRows = [], isOpen = false }) => (
+const PdfBranchStatCard = ({ item }) => (
   <div key={item.label} className="border-2 border-slate-400 rounded-xl p-4">
     <div className="text-xs font-bold text-slate-900 mb-2">{item.label}</div>
     {item.sourceCount && (
-      <div style={{ fontSize: '16px', fontWeight: 950, lineHeight: 1.1, color: '#020617', marginBottom: '10px', whiteSpace: 'nowrap' }}>
+      <div style={{ fontSize: '14px', fontWeight: 950, lineHeight: 1.18, color: '#020617', marginBottom: '10px', overflowWrap: 'anywhere' }}>
         内訳: {formatSourceBreakdown(item.sourceCount)}
       </div>
     )}
-    {item.sourceCount && isOpen && <StaffSourceBreakdownPanel rows={staffRows} pdf />}
     <div className="flex justify-between text-base mb-3">
       <span className="font-bold">当月実績:</span>
       <span className="font-bold">{item.actual}{item.unit && !String(item.actual).includes('(') ? item.unit : ''}</span>
@@ -957,6 +957,35 @@ const PdfBranchStatCard = ({ item, staffRows = [], isOpen = false }) => (
       <span className="font-bold">見込み:</span>
       <span className="font-bold">{item.forecast}{item.unit && !String(item.forecast).includes('(') ? item.unit : ''}</span>
     </div>
+  </div>
+);
+
+const PDF_BREAKDOWN_ROWS_PER_PAGE = 16;
+
+const buildPdfBreakdownPages = (branchSummary, branchTotalPersonDetailedSummary, branchSourceBreakdownOpen) =>
+  statRows(branchSummary).slice(0, 4).flatMap((item) => {
+    if (!branchSourceBreakdownOpen[item.key]) return [];
+    const rows = getStaffSourceRows(branchTotalPersonDetailedSummary, item.key);
+    if (!rows.length) return [];
+    const chunks = chunkArray(rows, PDF_BREAKDOWN_ROWS_PER_PAGE);
+    return chunks.map((chunk, pageIndex) => ({ item, rows: chunk, pageIndex, pageTotal: chunks.length }));
+  });
+
+const PdfBreakdownTable = ({ rows }) => (
+  <div style={{ borderTop: pdfCellBorder, borderLeft: pdfCellBorder, width: '100%', boxSizing: 'border-box' }}>
+    <div style={{ display: 'grid', gridTemplateColumns: '28% 24% 24% 24%' }}>
+      {['営業員', '包括', '居宅', '連携室'].map((header) => (
+        <div key={header} style={{ borderRight: pdfCellBorder, borderBottom: pdfCellBorder, background: '#f1f5f9', padding: '3.2mm 3mm', fontSize: '12px', fontWeight: 950, lineHeight: 1.2 }}>{header}</div>
+      ))}
+    </div>
+    {rows.map((row) => (
+      <div key={row.id} style={{ display: 'grid', gridTemplateColumns: '28% 24% 24% 24%', breakInside: 'avoid', pageBreakInside: 'avoid' }}>
+        <div style={{ borderRight: pdfCellBorder, borderBottom: pdfCellBorder, padding: '3.4mm 3mm', fontSize: '12px', fontWeight: 950, lineHeight: 1.25, minHeight: '10mm', overflowWrap: 'anywhere' }}>{row.name}</div>
+        <div style={{ borderRight: pdfCellBorder, borderBottom: pdfCellBorder, padding: '3.4mm 3mm', fontSize: '12px', fontWeight: 900, lineHeight: 1.25, minHeight: '10mm' }}>{row.sourceCount['包括'] || 0}</div>
+        <div style={{ borderRight: pdfCellBorder, borderBottom: pdfCellBorder, padding: '3.4mm 3mm', fontSize: '12px', fontWeight: 900, lineHeight: 1.25, minHeight: '10mm' }}>{row.sourceCount['居宅'] || 0}</div>
+        <div style={{ borderRight: pdfCellBorder, borderBottom: pdfCellBorder, padding: '3.4mm 3mm', fontSize: '12px', fontWeight: 900, lineHeight: 1.25, minHeight: '10mm' }}>{row.sourceCount['退院/連携室'] || 0}</div>
+      </div>
+    ))}
   </div>
 );
 
@@ -990,14 +1019,27 @@ const PDFTemplate = React.forwardRef(({ branchName, currentMonth, branchSummary,
   const staffPages = branchTotalPersonDetailedSummary.length <= 7
     ? [firstStaffPage].filter((page) => page.length)
     : [firstStaffPage, ...chunkArray(branchTotalPersonDetailedSummary.slice(7), 8)];
+  const breakdownPages = buildPdfBreakdownPages(branchSummary, branchTotalPersonDetailedSummary, branchSourceBreakdownOpen);
   return (
   <div ref={ref} style={{ width: '210mm', background: 'white', position: 'fixed', left: '-10000px', top: '0', color: '#0f172a', zoom: 1, transform: 'none', letterSpacing: 0, boxSizing: 'border-box' }}>
     <div className="pdf-page p-[14mm]" style={{ width: '210mm', height: '297mm', boxSizing: 'border-box', display: 'flex', flexDirection: 'column', backgroundColor: '#fff', letterSpacing: 0, fontKerning: 'normal', overflow: 'hidden' }}>
       <PdfHeader branchName={branchName} currentMonth={currentMonth} />
-      <div className="grid grid-cols-2 gap-5 mb-8">{statRows(branchSummary).slice(0, 4).map((item) => <PdfBranchStatCard key={item.label} item={item} staffRows={getStaffSourceRows(branchTotalPersonDetailedSummary, item.key)} isOpen={Boolean(branchSourceBreakdownOpen[item.key])} />)}</div>
+      <div className="grid grid-cols-2 gap-5 mb-8">{statRows(branchSummary).slice(0, 4).map((item) => <PdfBranchStatCard key={item.label} item={item} />)}</div>
       <div className="border-2 border-slate-900 rounded-xl pt-1 pb-9 px-6 mb-8 bg-slate-50"><div className="text-sm font-bold text-slate-900 uppercase tracking-widest mb-1">受注残合計 (レンタル・特価見込総額)</div><div className="text-5xl font-bold text-slate-900">¥{yenK(branchSummary.rentalBacklogTotalAmt)}千円</div></div>
       <div className="mt-auto pt-5 text-right text-[10px] text-slate-900 font-bold border-t border-slate-200">太陽シルバーサービス株式会社 {branchName} 進捗管理報告</div>
     </div>
+    {breakdownPages.map((page, index) => (
+      <div key={`breakdown-page-${page.item.key}-${page.pageIndex}`} className="pdf-page p-[12mm]" style={{ width: '210mm', height: '297mm', boxSizing: 'border-box', display: 'flex', flexDirection: 'column', backgroundColor: '#fff', letterSpacing: 0, fontKerning: 'normal', overflow: 'hidden' }}>
+        <PdfHeader branchName={branchName} currentMonth={currentMonth} compact />
+        <div className="mb-5">
+          <h2 className="text-2xl font-bold border-l-8 border-slate-800 pl-4">営業員別内訳</h2>
+          <div className="mt-2 text-lg font-bold text-slate-900">{page.item.label} 包括・居宅・連携室</div>
+          <div className="mt-1 text-sm font-bold text-slate-700">内訳: {formatSourceBreakdown(page.item.sourceCount)}　{page.pageIndex + 1}/{page.pageTotal}ページ</div>
+        </div>
+        <PdfBreakdownTable rows={page.rows} />
+        <div className="mt-auto pt-4 text-right text-[10px] text-slate-900 font-bold border-t border-slate-200">太陽シルバーサービス株式会社 {branchName} 進捗管理報告 / 営業員別内訳 {index + 1}/{breakdownPages.length}</div>
+      </div>
+    ))}
     {staffPages.map((people, index) => (
       <div key={`staff-page-${index}`} className="pdf-page p-[10mm]" style={{ width: '210mm', height: '297mm', boxSizing: 'border-box', display: 'flex', flexDirection: 'column', backgroundColor: '#fff', letterSpacing: 0, fontKerning: 'normal', overflow: 'hidden' }}>
         <PdfHeader branchName={branchName} currentMonth={currentMonth} compact />
@@ -1252,6 +1294,8 @@ const MainApp = ({ branchSetting }) => {
   const updateOrderField = useCallback(async (id, field, value) => {
     const updateData = { [field]: value };
     if (field === 'category') updateData.status = getStatusesByCategory(value)[0];
+    if (field === 'isCarryOver' && value) updateData.isMoveToPrevious = false;
+    if (field === 'isMoveToPrevious' && value) updateData.isCarryOver = false;
     await updateDoc(doc(db, ...basePath, 'orders', id), updateData);
   }, [basePath]);
   const deleteOrder = useCallback(async (id) => { await deleteDoc(doc(db, ...basePath, 'orders', id)); showMessage('削除しました'); }, [basePath, showMessage]);
@@ -1260,7 +1304,7 @@ const MainApp = ({ branchSetting }) => {
     const newId = `order_${Date.now()}`;
     let finalAmount = Number(data.amount || 0);
     if (data.billingType === 'half') finalAmount = Math.floor(finalAmount / 2);
-    await setDoc(doc(db, ...basePath, 'orders', newId), { ...data, targetMonth: currentMonth, salespersonId: entryStaffId, amount: finalAmount, createdAt: new Date().toISOString() });
+    await setDoc(doc(db, ...basePath, 'orders', newId), { ...data, isMoveToPrevious: false, targetMonth: currentMonth, salespersonId: entryStaffId, amount: finalAmount, createdAt: new Date().toISOString() });
     showMessage('登録しました');
   }, [basePath, currentMonth, entryStaffId, showMessage]);
 
@@ -1276,6 +1320,7 @@ const MainApp = ({ branchSetting }) => {
       amount: '',
       status: getStatusesByCategory(category)[0],
       isCarryOver: false,
+      isMoveToPrevious: false,
       billingType: 'full',
       targetMonth: currentMonth,
       salespersonId: Number(targetStaffId),
@@ -1363,17 +1408,17 @@ const MainApp = ({ branchSetting }) => {
     const toCarry = listOrders.filter((o) => o.isCarryOver);
     if (!toCarry.length) return showMessage('対象がありません');
     const batch = writeBatch(db);
-    toCarry.forEach((o) => batch.update(doc(db, ...basePath, 'orders', o.id), { targetMonth: nextMonth, isCarryOver: false }));
+    toCarry.forEach((o) => batch.update(doc(db, ...basePath, 'orders', o.id), { targetMonth: nextMonth, isCarryOver: false, isMoveToPrevious: false }));
     await batch.commit();
     showMessage('次月へ移行しました');
   }, [basePath, currentMonth, listOrders, showMessage]);
 
   const handleMoveCheckedToPrevious = useCallback(async () => {
     const previousMonth = getOffsetMonth(currentMonth, -1);
-    const toMove = listOrders.filter((o) => o.isCarryOver);
+    const toMove = listOrders.filter((o) => o.isMoveToPrevious);
     if (!toMove.length) return showMessage('対象がありません');
     const batch = writeBatch(db);
-    toMove.forEach((o) => batch.update(doc(db, ...basePath, 'orders', o.id), { targetMonth: previousMonth, isCarryOver: false }));
+    toMove.forEach((o) => batch.update(doc(db, ...basePath, 'orders', o.id), { targetMonth: previousMonth, isCarryOver: false, isMoveToPrevious: false }));
     await batch.commit();
     showMessage('前月へ戻しました');
   }, [basePath, currentMonth, listOrders, showMessage]);
