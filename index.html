@@ -402,6 +402,23 @@ const formatBreakdownTotal = (key, totalCnt, totalAmt) => {
   return `${totalCnt}件`;
 };
 
+const getPrintCardStaffRows = (staffBreakdown, key) => (staffBreakdown || [])
+  .filter((staff) => staff?.id && staff?.current?.[key])
+  .map((staff) => {
+    const metric = staff.current[key];
+    return {
+      id: staff.id,
+      name: staff.name,
+      key,
+      sourceCount: metric.sourceCount || createSourceCount(),
+      doneCnt: Number(metric.doneCnt || 0),
+      doneAmt: Number(metric.doneAmt || 0),
+      forecastCnt: Number(metric.forecastCnt || 0),
+      forecastAmt: Number(metric.forecastAmt || 0)
+    };
+  })
+  .filter((row) => row.doneCnt > 0 || row.doneAmt > 0 || row.forecastCnt > 0 || row.forecastAmt > 0 || Object.values(row.sourceCount).some((v) => Number(v || 0) > 0));
+
 const StaffSourceBreakdownPanel = ({ rows, pdf = false }) => {
   if (!rows.length) return <div className={`${pdf ? '' : 'mt-2'} text-[11px] font-bold text-slate-500`}>営業員別の内訳はありません</div>;
   return (
@@ -958,6 +975,10 @@ const PDF_BREAKDOWN_PAGE_UNITS = 20;
 const PDF_BREAKDOWN_SECTION_BASE_UNITS = 4;
 const PDF_BREAKDOWN_LONG_SECTION_ROWS = PDF_BREAKDOWN_PAGE_UNITS - PDF_BREAKDOWN_SECTION_BASE_UNITS;
 const PDF_BREAKDOWN_ORDER = ['rentalNew', 'renovation', 'equipment', 'bed'];
+const PDF_CARD_PAGE_UNITS = 52;
+const PDF_CARD_FIRST_PAGE_BACKLOG_UNITS = 4;
+const PDF_CARD_SECTION_BASE_UNITS = 8;
+const PDF_CARD_LONG_SECTION_ROWS = 12;
 
 const buildPdfBreakdownSections = (branchSummary, branchTotalPersonDetailedSummary) =>
   PDF_BREAKDOWN_ORDER.map((key) => statRows(branchSummary).find((item) => item.key === key)).filter(Boolean).flatMap((item) => {
@@ -986,6 +1007,77 @@ const buildPdfBreakdownPages = (branchSummary, branchTotalPersonDetailedSummary)
   }
   if (current.sections.length) pages.push(current.sections);
   return pages;
+};
+
+const buildPdfCardSections = (branchSummary, branchTotalPersonDetailedSummary) =>
+  PDF_BREAKDOWN_ORDER.map((key) => statRows(branchSummary).find((item) => item.key === key)).filter(Boolean).flatMap((item) => {
+    const rows = getPrintCardStaffRows(branchTotalPersonDetailedSummary, item.key);
+    if (rows.length <= PDF_CARD_LONG_SECTION_ROWS) return [{ item, rows, pageIndex: 0, pageTotal: 1 }];
+    const chunks = chunkArray(rows, PDF_CARD_LONG_SECTION_ROWS);
+    return chunks.map((chunk, pageIndex) => ({ item, rows: chunk, pageIndex, pageTotal: chunks.length }));
+  });
+
+const buildPdfCardPages = (branchSummary, branchTotalPersonDetailedSummary) => {
+  const pages = [];
+  let current = { sections: [], units: PDF_CARD_FIRST_PAGE_BACKLOG_UNITS, showBacklog: true };
+  for (const section of buildPdfCardSections(branchSummary, branchTotalPersonDetailedSummary)) {
+    const sectionUnits = PDF_CARD_SECTION_BASE_UNITS + section.rows.length;
+    if (current.sections.length && current.units + sectionUnits > PDF_CARD_PAGE_UNITS) {
+      pages.push(current);
+      current = { sections: [], units: 0, showBacklog: false };
+    }
+    current.sections.push(section);
+    current.units += sectionUnits;
+  }
+  if (current.sections.length || current.showBacklog) pages.push(current);
+  return pages;
+};
+
+const PdfPrintBacklogCard = ({ totalAmt }) => (
+  <div style={{ border: '1.6px solid #cbd5e1', borderRadius: '10px', padding: '5mm 6mm', marginBottom: '5mm', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#f8fafc', boxSizing: 'border-box' }}>
+    <div style={{ fontSize: '12px', fontWeight: 950, color: '#475569', letterSpacing: 0 }}>受注残合計（レンタル・特価見込総額）</div>
+    <div style={{ fontSize: '26px', fontWeight: 950, color: '#0f172a', lineHeight: 1 }}>¥{yenK(totalAmt)}千円</div>
+  </div>
+);
+
+const formatPrintStaffValue = (row) => {
+  if (row.key === 'bed') return `実績:${row.doneCnt}台 見込み:${row.forecastCnt}台`;
+  return `合計:${formatBreakdownTotal(row.key, row.forecastCnt, row.forecastAmt)}`;
+};
+
+const PdfPrintStaffRows = ({ rows }) => (
+  <div style={{ borderTop: '1px solid #cbd5e1', marginTop: '3.5mm', paddingTop: '3mm' }}>
+    {rows.map((row) => (
+      <div key={row.id} style={{ display: 'grid', gridTemplateColumns: '22mm 1fr', columnGap: '3mm', fontSize: '9.2px', lineHeight: 1.35, fontWeight: 900, color: '#0f172a', marginBottom: '1.8mm', breakInside: 'avoid', pageBreakInside: 'avoid' }}>
+        <div style={{ overflowWrap: 'anywhere' }}>{row.name}</div>
+        <div style={{ textAlign: 'right', overflowWrap: 'anywhere' }}>{formatPrintStaffValue(row)} 包括:{row.sourceCount['包括'] || 0} 居宅:{row.sourceCount['居宅'] || 0} 連携室:{row.sourceCount['退院/連携室'] || 0}</div>
+      </div>
+    ))}
+  </div>
+);
+
+const PdfPrintMetricCard = ({ section }) => {
+  const { item, rows } = section;
+  return (
+    <section style={{ border: '1.5px solid #dbeafe', borderRadius: '12px', padding: '5mm', background: '#fff', boxSizing: 'border-box', minHeight: '64mm', breakInside: 'avoid', pageBreakInside: 'avoid' }}>
+      <div style={{ borderLeft: '4px solid #cbd5e1', paddingLeft: '3mm', fontSize: '15px', fontWeight: 950, color: '#0f172a', lineHeight: 1.15, marginBottom: '4mm' }}>{item.label}</div>
+      <div style={{ display: 'grid', gridTemplateRows: '14mm 22mm', borderRadius: '8px', overflow: 'hidden', border: '1px solid #e2e8f0' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '26mm 1fr', alignItems: 'center', padding: '0 4mm', background: '#fff' }}>
+          <div style={{ fontSize: '11px', fontWeight: 950, color: '#334155' }}>実績</div>
+          <div style={{ textAlign: 'center', fontSize: '24px', fontWeight: 950, color: '#334155', lineHeight: 1 }}>{item.actual}{item.unit && !String(item.actual).includes('(') ? <span style={{ fontSize: '10px', marginLeft: '1mm' }}>{item.unit}</span> : ''}</div>
+        </div>
+        <div style={{ padding: '3mm 4mm', background: '#f8fbff', borderTop: '1px solid #e2e8f0' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '26mm 1fr', alignItems: 'center' }}>
+            <div style={{ fontSize: '11px', fontWeight: 950, color: '#2563eb' }}>見込み</div>
+            <div style={{ textAlign: 'center', fontSize: '22px', fontWeight: 950, color: '#2563eb', lineHeight: 1 }}>{item.forecast}{item.unit && !String(item.forecast).includes('(') ? <span style={{ fontSize: '10px', marginLeft: '1mm' }}>{item.unit}</span> : ''}</div>
+          </div>
+          {item.sourceCount && <div style={{ marginTop: '3mm', textAlign: 'center', fontSize: '10px', fontWeight: 950, color: '#1e40af' }}>{formatSourceBreakdown(item.sourceCount)}</div>}
+        </div>
+      </div>
+      <div style={{ marginTop: '3mm', border: '1px solid #bfdbfe', borderRadius: '8px', padding: '2.2mm 3mm', color: '#1d4ed8', fontSize: '10px', fontWeight: 950 }}>営業員別内訳</div>
+      <PdfPrintStaffRows rows={rows} />
+    </section>
+  );
 };
 
 const PdfBreakdownTable = ({ rows }) => (
@@ -1045,40 +1137,17 @@ const PdfStaffTable = ({ people, includeTotal = false }) => {
 };
 
 const PDFTemplate = React.forwardRef(({ branchName, currentMonth, branchSummary, branchTotalPersonDetailedSummary }, ref) => {
-  const firstStaffPage = branchTotalPersonDetailedSummary.slice(0, 7);
-  const staffPages = branchTotalPersonDetailedSummary.length <= 7
-    ? [firstStaffPage].filter((page) => page.length)
-    : [firstStaffPage, ...chunkArray(branchTotalPersonDetailedSummary.slice(7), 8)];
-  const breakdownPages = buildPdfBreakdownPages(branchSummary, branchTotalPersonDetailedSummary);
+  const cardPages = buildPdfCardPages(branchSummary, branchTotalPersonDetailedSummary);
   return (
   <div ref={ref} style={{ width: '210mm', background: 'white', position: 'fixed', left: '-10000px', top: '0', color: '#0f172a', zoom: 1, transform: 'none', letterSpacing: 0, boxSizing: 'border-box' }}>
-    <div className="pdf-page p-[14mm]" style={{ width: '210mm', height: '297mm', boxSizing: 'border-box', display: 'flex', flexDirection: 'column', backgroundColor: '#fff', letterSpacing: 0, fontKerning: 'normal', overflow: 'hidden' }}>
-      <PdfHeader branchName={branchName} currentMonth={currentMonth} />
-      <div className="grid grid-cols-2 gap-5 mb-8">{statRows(branchSummary).slice(0, 4).map((item) => <PdfBranchStatCard key={item.label} item={item} />)}</div>
-      <div className="border-2 border-slate-900 rounded-xl pt-1 pb-9 px-6 mb-8 bg-slate-50"><div className="text-sm font-bold text-slate-900 uppercase tracking-widest mb-1">受注残合計 (レンタル・特価見込総額)</div><div className="text-5xl font-bold text-slate-900">¥{yenK(branchSummary.rentalBacklogTotalAmt)}千円</div></div>
-      <div className="mt-auto pt-5 text-right text-[10px] text-slate-900 font-bold border-t border-slate-200">太陽シルバーサービス株式会社 {branchName} 進捗管理報告</div>
-    </div>
-    {breakdownPages.map((sections, index) => (
-      <div key={`breakdown-page-${index}`} className="pdf-page p-[12mm]" style={{ width: '210mm', height: '297mm', boxSizing: 'border-box', display: 'flex', flexDirection: 'column', backgroundColor: '#fff', letterSpacing: 0, fontKerning: 'normal', overflow: 'hidden' }}>
+    {cardPages.map((page, index) => (
+      <div key={`print-card-page-${index}`} className="pdf-page p-[12mm]" style={{ width: '210mm', height: '297mm', boxSizing: 'border-box', display: 'flex', flexDirection: 'column', backgroundColor: '#fff', letterSpacing: 0, fontKerning: 'normal', overflow: 'hidden' }}>
         <PdfHeader branchName={branchName} currentMonth={currentMonth} compact />
-        <div className="mb-4">
-          <h2 className="text-2xl font-bold border-l-8 border-slate-800 pl-4">営業員別内訳</h2>
+        {page.showBacklog && <PdfPrintBacklogCard totalAmt={branchSummary.rentalBacklogTotalAmt} />}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '5mm', alignItems: 'start', flex: '1 1 auto' }}>
+          {page.sections.map((section) => <PdfPrintMetricCard key={`${section.item.key}-${section.pageIndex}`} section={section} />)}
         </div>
-        <div style={{ flex: '1 1 auto' }}>
-          {sections.map((section) => <PdfBreakdownSection key={`${section.item.key}-${section.pageIndex}`} section={section} />)}
-        </div>
-        <div className="mt-auto pt-4 text-right text-[10px] text-slate-900 font-bold border-t border-slate-200">太陽シルバーサービス株式会社 {branchName} 進捗管理報告 / 営業員別内訳 {index + 1}/{breakdownPages.length}</div>
-      </div>
-    ))}
-    {staffPages.map((people, index) => (
-      <div key={`staff-page-${index}`} className="pdf-page p-[10mm]" style={{ width: '210mm', height: '297mm', boxSizing: 'border-box', display: 'flex', flexDirection: 'column', backgroundColor: '#fff', letterSpacing: 0, fontKerning: 'normal', overflow: 'hidden' }}>
-        <PdfHeader branchName={branchName} currentMonth={currentMonth} compact />
-        <div className="flex justify-between items-center mb-4">
-          <h2 className="text-xl font-bold border-l-8 border-slate-800 pl-4">所員別 進捗ステータス詳細</h2>
-          <div className="text-sm font-bold text-slate-700">{index + 1}/{staffPages.length}ページ</div>
-        </div>
-        <PdfStaffTable people={people} includeTotal={index === 0} />
-        <div className="mt-auto pt-4 text-right text-[10px] text-slate-900 font-bold border-t border-slate-200">太陽シルバーサービス株式会社 {branchName} 進捗管理報告</div>
+        <div className="mt-auto pt-4 text-right text-[10px] text-slate-900 font-bold border-t border-slate-200">太陽シルバーサービス株式会社 {branchName} 進捗管理報告 / {index + 1}/{cardPages.length}ページ</div>
       </div>
     ))}
   </div>
