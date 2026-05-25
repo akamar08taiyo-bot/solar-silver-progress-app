@@ -923,20 +923,22 @@ const PdfProgressCell = ({ p, col }) => {
   if (col.isBacklog) {
     return (
       <div style={{ ...pdfCellBaseStyle, height: PDF_STAFF_ROW_HEIGHT }}>
-        <div style={{ height: PDF_STAFF_ROW_HEIGHT, display: 'grid', gridTemplateRows: '13mm 14mm', alignItems: 'center', textAlign: 'center', color: '#0f172a' }}>
-          <div style={{ fontSize: '10px', fontWeight: 900, lineHeight: 1, whiteSpace: 'nowrap' }}>受注残</div>
-          <div style={{ fontSize: '10.2px', fontWeight: 950, lineHeight: 1, whiteSpace: 'nowrap' }}>¥{yenK(p.current.rentalBacklogTotalAmt)}千円</div>
+        <div style={{ height: PDF_STAFF_ROW_HEIGHT, display: 'grid', gridTemplateRows: '13mm 14mm', alignItems: 'center', textAlign: 'center', color: '#0f172a', padding: '0 1mm', boxSizing: 'border-box', overflow: 'hidden' }}>
+          <div style={{ fontSize: '9px', fontWeight: 900, lineHeight: 1.1, overflowWrap: 'anywhere', wordBreak: 'break-all' }}>受注残</div>
+          <div style={{ fontSize: '9px', fontWeight: 950, lineHeight: 1.1, overflowWrap: 'anywhere', wordBreak: 'break-all' }}>¥{yenK(p.current.rentalBacklogTotalAmt)}千円</div>
         </div>
       </div>
     );
   }
+  const mainFontSize = col.isAmount ? '7.2px' : '8px';
+  const subFontSize = col.isAmount ? '6.4px' : '7px';
+  const lineStyle = { fontWeight: 950, lineHeight: 1.1, overflowWrap: 'anywhere', wordBreak: 'break-all', whiteSpace: 'normal' };
   return (
     <div style={{ ...pdfCellBaseStyle, height: PDF_STAFF_ROW_HEIGHT }}>
-      <div style={{ height: PDF_STAFF_ROW_HEIGHT, display: 'grid', gridTemplateRows: '6.1mm 6.1mm 5.2mm 6.1mm', alignItems: 'center', textAlign: 'center' }}>
-        <div style={{ fontSize: '8.7px', fontWeight: 900, lineHeight: 1, color: '#0f172a', whiteSpace: 'nowrap' }}>実績:{pdfProgressValue(p, col, 'done')}</div>
-        <div style={{ fontSize: '8.7px', fontWeight: 950, lineHeight: 1, color: '#b91c1c', whiteSpace: 'nowrap' }}>見込み:{pdfProgressValue(p, col, 'forecast')}</div>
-        <div style={{ fontSize: '7.1px', fontWeight: 950, lineHeight: 1, color: '#020617', whiteSpace: 'nowrap' }}>{formatSourceBreakdown(p.current[col.key].sourceCount)}</div>
-        <div style={{ fontSize: '7.9px', fontWeight: 950, lineHeight: 1, color: '#0f172a', whiteSpace: 'nowrap' }}>実績+見込:{progressCombinedValue(p, col)}</div>
+      <div style={{ height: PDF_STAFF_ROW_HEIGHT, display: 'grid', gridTemplateRows: '8.4mm 8.4mm 7.2mm', alignItems: 'center', textAlign: 'center', padding: '0 1mm', boxSizing: 'border-box', overflow: 'hidden' }}>
+        <div style={{ ...lineStyle, fontSize: mainFontSize, color: '#0f172a' }}>実績:{pdfProgressValue(p, col, 'done')}</div>
+        <div style={{ ...lineStyle, fontSize: mainFontSize, color: '#b91c1c' }}>見込み:{pdfProgressValue(p, col, 'forecast')}</div>
+        <div style={{ ...lineStyle, fontSize: subFontSize, color: '#020617' }}>{formatSourceBreakdown(p.current[col.key].sourceCount)}</div>
       </div>
     </div>
   );
@@ -964,9 +966,10 @@ const PdfBranchStatCard = ({ item }) => (
 const PDF_BREAKDOWN_PAGE_UNITS = 20;
 const PDF_BREAKDOWN_SECTION_BASE_UNITS = 4;
 const PDF_BREAKDOWN_LONG_SECTION_ROWS = PDF_BREAKDOWN_PAGE_UNITS - PDF_BREAKDOWN_SECTION_BASE_UNITS;
+const PDF_BREAKDOWN_ORDER = ['rentalNew', 'renovation', 'equipment', 'bed'];
 
 const buildPdfBreakdownSections = (branchSummary, branchTotalPersonDetailedSummary) =>
-  statRows(branchSummary).slice(0, 4).flatMap((item) => {
+  PDF_BREAKDOWN_ORDER.map((key) => statRows(branchSummary).find((item) => item.key === key)).filter(Boolean).flatMap((item) => {
     const rows = getStaffSourceRows(branchTotalPersonDetailedSummary, item.key);
     if (!rows.length) return [];
     const totals = rows.reduce((acc, row) => ({
@@ -1838,14 +1841,14 @@ const SourceRatioPie = ({ title, sourceCount }) => {
   };
   const pct = (value) => total ? `${Math.round((value / total) * 100)}%` : '0%';
   return (
-    <div className="bg-white border border-slate-100 rounded-xl p-4 flex items-center gap-4 min-w-0">
-      <div className="w-24 h-24 rounded-full shrink-0 shadow-inner border border-slate-100" style={chartStyle} />
+    <div className="bg-white border-2 border-slate-200 rounded-2xl p-5 flex flex-col sm:flex-row sm:items-center gap-5 min-w-0 shadow-sm">
+      <div className="w-32 h-32 rounded-full shrink-0 shadow-inner border-4 border-white ring-1 ring-slate-200 mx-auto sm:mx-0" style={chartStyle} />
       <div className="min-w-0 flex-1">
-        <div className="font-extrabold text-slate-900 text-sm mb-2 truncate">{title}</div>
-        <div className="space-y-1 text-xs font-bold text-slate-700">
-          <div className="flex justify-between gap-2"><span className="text-blue-600">包括</span><span>{houkatsu}件 / {pct(houkatsu)}</span></div>
-          <div className="flex justify-between gap-2"><span className="text-emerald-600">居宅</span><span>{kyotaku}件 / {pct(kyotaku)}</span></div>
-          <div className="flex justify-between gap-2"><span className="text-slate-600">連携室</span><span>{renkei}件 / {pct(renkei)}</span></div>
+        <div className="font-extrabold text-slate-900 text-lg mb-3 leading-tight">{title}</div>
+        <div className="space-y-2 text-sm font-extrabold text-slate-800">
+          <div className="flex justify-between gap-3 bg-blue-50 border border-blue-100 rounded-xl px-3 py-2"><span className="text-blue-700">包括</span><span>{houkatsu}件 / {pct(houkatsu)}</span></div>
+          <div className="flex justify-between gap-3 bg-emerald-50 border border-emerald-100 rounded-xl px-3 py-2"><span className="text-emerald-700">居宅</span><span>{kyotaku}件 / {pct(kyotaku)}</span></div>
+          <div className="flex justify-between gap-3 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2"><span className="text-slate-700">連携室</span><span>{renkei}件 / {pct(renkei)}</span></div>
         </div>
       </div>
     </div>
@@ -1855,16 +1858,16 @@ const SourceRatioPie = ({ title, sourceCount }) => {
 const SourceRatioPanel = ({ title, groups, compact = false }) => {
   const [isOpen, setIsOpen] = useState(false);
   return (
-  <div className="border border-slate-200 rounded-2xl bg-slate-50/60 overflow-hidden">
-    <button type="button" onClick={() => setIsOpen((prev) => !prev)} className="w-full px-4 py-3 flex items-center justify-between gap-3 bg-white hover:bg-slate-50 text-left">
-      <div>
-        <h4 className="text-base font-extrabold text-slate-900">包括・居宅・連携室割合</h4>
-        <p className="text-xs font-bold text-slate-500">{title}の各項目ごとの依頼割合を円グラフで確認できます</p>
+  <div className="border-2 border-blue-100 rounded-3xl bg-blue-50/60 overflow-hidden shadow-sm">
+    <button type="button" onClick={() => setIsOpen((prev) => !prev)} className="w-full px-6 py-5 flex items-center justify-between gap-4 bg-white hover:bg-blue-50 text-left">
+      <div className="min-w-0">
+        <h4 className="text-2xl font-extrabold text-slate-900 leading-tight">包括・居宅・連携室割合</h4>
+        <p className="text-sm sm:text-base font-bold text-slate-600 mt-1">{title}の各項目ごとの依頼割合を円グラフで確認できます</p>
       </div>
-      <span className={`text-xs font-extrabold px-3 py-1.5 rounded-lg whitespace-nowrap ${isOpen ? 'bg-slate-800 text-white' : 'bg-blue-50 text-blue-600'}`}>{isOpen ? '閉じる' : '開く'}</span>
+      <span className={`text-base font-extrabold px-5 py-3 rounded-2xl whitespace-nowrap ${isOpen ? 'bg-slate-800 text-white' : 'bg-blue-100 text-blue-700'}`}>{isOpen ? '閉じる' : '開く'}</span>
     </button>
     {isOpen && (
-    <div className={`border-t border-slate-100 p-4 grid gap-4 ${compact ? 'grid-cols-1 lg:grid-cols-2' : 'grid-cols-1 md:grid-cols-2 xl:grid-cols-3'}`}>
+    <div className={`border-t border-blue-100 p-5 grid gap-5 ${compact ? 'grid-cols-1 lg:grid-cols-2' : 'grid-cols-1 md:grid-cols-2 xl:grid-cols-3'}`}>
       {groups.map((group) => <SourceRatioPie key={`${title}-${group.title}`} title={group.title} sourceCount={group.sourceCount} />)}
     </div>
     )}
