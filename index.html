@@ -975,9 +975,9 @@ const PDF_BREAKDOWN_PAGE_UNITS = 20;
 const PDF_BREAKDOWN_SECTION_BASE_UNITS = 4;
 const PDF_BREAKDOWN_LONG_SECTION_ROWS = PDF_BREAKDOWN_PAGE_UNITS - PDF_BREAKDOWN_SECTION_BASE_UNITS;
 const PDF_BREAKDOWN_ORDER = ['rentalNew', 'renovation', 'equipment', 'bed'];
-const PDF_CARD_PAGE_UNITS = 52;
-const PDF_CARD_FIRST_PAGE_BACKLOG_UNITS = 4;
-const PDF_CARD_SECTION_BASE_UNITS = 8;
+const PDF_CARD_PAGE_UNITS = 56;
+const PDF_CARD_FIRST_PAGE_BACKLOG_UNITS = 3;
+const PDF_CARD_SECTION_BASE_UNITS = 7;
 const PDF_CARD_LONG_SECTION_ROWS = 12;
 
 const buildPdfBreakdownSections = (branchSummary, branchTotalPersonDetailedSummary) =>
@@ -1018,9 +1018,18 @@ const buildPdfCardSections = (branchSummary, branchTotalPersonDetailedSummary) =
   });
 
 const buildPdfCardPages = (branchSummary, branchTotalPersonDetailedSummary) => {
+  const sections = buildPdfCardSections(branchSummary, branchTotalPersonDetailedSummary);
+  const maxRows = Math.max(0, ...sections.map((section) => section.rows.length));
+  if (maxRows <= 8) return [{ sections, showBacklog: true }];
+  if (maxRows >= 9) {
+    return [
+      { sections: sections.filter((section) => ['rentalNew', 'renovation'].includes(section.item.key)), showBacklog: true },
+      { sections: sections.filter((section) => ['equipment', 'bed'].includes(section.item.key)), showBacklog: false }
+    ].filter((page) => page.showBacklog || page.sections.length);
+  }
   const pages = [];
   let current = { sections: [], units: PDF_CARD_FIRST_PAGE_BACKLOG_UNITS, showBacklog: true };
-  for (const section of buildPdfCardSections(branchSummary, branchTotalPersonDetailedSummary)) {
+  for (const section of sections) {
     const sectionUnits = PDF_CARD_SECTION_BASE_UNITS + section.rows.length;
     if (current.sections.length && current.units + sectionUnits > PDF_CARD_PAGE_UNITS) {
       pages.push(current);
@@ -1034,9 +1043,9 @@ const buildPdfCardPages = (branchSummary, branchTotalPersonDetailedSummary) => {
 };
 
 const PdfPrintBacklogCard = ({ totalAmt }) => (
-  <div style={{ border: '1.6px solid #cbd5e1', borderRadius: '10px', padding: '5mm 6mm', marginBottom: '5mm', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#f8fafc', boxSizing: 'border-box' }}>
-    <div style={{ fontSize: '12px', fontWeight: 950, color: '#475569', letterSpacing: 0 }}>受注残合計（レンタル・特価見込総額）</div>
-    <div style={{ fontSize: '26px', fontWeight: 950, color: '#0f172a', lineHeight: 1 }}>¥{yenK(totalAmt)}千円</div>
+  <div style={{ border: '1.5px solid #cbd5e1', borderRadius: '10px', padding: '3.8mm 5mm', marginBottom: '4mm', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#f8fafc', boxSizing: 'border-box' }}>
+    <div style={{ fontSize: '11px', fontWeight: 950, color: '#475569', letterSpacing: 0 }}>受注残合計（レンタル・特価見込総額）</div>
+    <div style={{ fontSize: '23px', fontWeight: 950, color: '#0f172a', lineHeight: 1 }}>¥{yenK(totalAmt)}千円</div>
   </div>
 );
 
@@ -1046,9 +1055,9 @@ const formatPrintStaffValue = (row) => {
 };
 
 const PdfPrintStaffRows = ({ rows }) => (
-  <div style={{ borderTop: '1px solid #cbd5e1', marginTop: '3.5mm', paddingTop: '3mm' }}>
+  <div style={{ borderTop: '1px solid #cbd5e1', marginTop: '2.6mm', paddingTop: '2.2mm' }}>
     {rows.map((row) => (
-      <div key={row.id} style={{ display: 'grid', gridTemplateColumns: '22mm 1fr', columnGap: '3mm', fontSize: '9.2px', lineHeight: 1.35, fontWeight: 900, color: '#0f172a', marginBottom: '1.8mm', breakInside: 'avoid', pageBreakInside: 'avoid' }}>
+      <div key={row.id} style={{ display: 'grid', gridTemplateColumns: '22mm 1fr', columnGap: '3mm', fontSize: '10.2px', lineHeight: 1.28, fontWeight: 950, color: '#0f172a', marginBottom: '1.25mm', breakInside: 'avoid', pageBreakInside: 'avoid' }}>
         <div style={{ overflowWrap: 'anywhere' }}>{row.name}</div>
         <div style={{ textAlign: 'right', overflowWrap: 'anywhere' }}>{formatPrintStaffValue(row)} 包括:{row.sourceCount['包括'] || 0} 居宅:{row.sourceCount['居宅'] || 0} 連携室:{row.sourceCount['退院/連携室'] || 0}</div>
       </div>
@@ -1058,23 +1067,24 @@ const PdfPrintStaffRows = ({ rows }) => (
 
 const PdfPrintMetricCard = ({ section }) => {
   const { item, rows } = section;
+  const isAmountCard = item.key === 'renovation' || item.key === 'equipment';
   return (
-    <section style={{ border: '1.5px solid #dbeafe', borderRadius: '12px', padding: '5mm', background: '#fff', boxSizing: 'border-box', minHeight: '64mm', breakInside: 'avoid', pageBreakInside: 'avoid' }}>
-      <div style={{ borderLeft: '4px solid #cbd5e1', paddingLeft: '3mm', fontSize: '15px', fontWeight: 950, color: '#0f172a', lineHeight: 1.15, marginBottom: '4mm' }}>{item.label}</div>
-      <div style={{ display: 'grid', gridTemplateRows: '14mm 22mm', borderRadius: '8px', overflow: 'hidden', border: '1px solid #e2e8f0' }}>
-        <div style={{ display: 'grid', gridTemplateColumns: '26mm 1fr', alignItems: 'center', padding: '0 4mm', background: '#fff' }}>
+    <section style={{ border: '1.5px solid #dbeafe', borderRadius: '12px', padding: '4mm', background: '#fff', boxSizing: 'border-box', minHeight: '54mm', breakInside: 'avoid', pageBreakInside: 'avoid' }}>
+      <div style={{ borderLeft: '4px solid #cbd5e1', paddingLeft: '3mm', fontSize: '14px', fontWeight: 950, color: '#0f172a', lineHeight: 1.1, marginBottom: '3mm' }}>{item.label}</div>
+      <div style={{ display: 'grid', gridTemplateRows: '12mm 19mm', borderRadius: '8px', overflow: 'hidden', border: '1px solid #e2e8f0' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '25mm 1fr', alignItems: 'center', padding: '0 4mm', background: '#fff' }}>
           <div style={{ fontSize: '11px', fontWeight: 950, color: '#334155' }}>実績</div>
-          <div style={{ textAlign: 'center', fontSize: '24px', fontWeight: 950, color: '#334155', lineHeight: 1 }}>{item.actual}{item.unit && !String(item.actual).includes('(') ? <span style={{ fontSize: '10px', marginLeft: '1mm' }}>{item.unit}</span> : ''}</div>
+          <div style={{ textAlign: 'center', fontSize: isAmountCard ? '24px' : '26px', fontWeight: 950, color: '#334155', lineHeight: 1 }}>{item.actual}{item.unit && !String(item.actual).includes('(') ? <span style={{ fontSize: '10px', marginLeft: '1mm' }}>{item.unit}</span> : ''}</div>
         </div>
-        <div style={{ padding: '3mm 4mm', background: '#f8fbff', borderTop: '1px solid #e2e8f0' }}>
-          <div style={{ display: 'grid', gridTemplateColumns: '26mm 1fr', alignItems: 'center' }}>
+        <div style={{ padding: '2.2mm 4mm', background: '#f8fbff', borderTop: '1px solid #e2e8f0' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '25mm 1fr', alignItems: 'center' }}>
             <div style={{ fontSize: '11px', fontWeight: 950, color: '#2563eb' }}>見込み</div>
-            <div style={{ textAlign: 'center', fontSize: '22px', fontWeight: 950, color: '#2563eb', lineHeight: 1 }}>{item.forecast}{item.unit && !String(item.forecast).includes('(') ? <span style={{ fontSize: '10px', marginLeft: '1mm' }}>{item.unit}</span> : ''}</div>
+            <div style={{ textAlign: 'center', fontSize: isAmountCard ? '24px' : '26px', fontWeight: 950, color: '#2563eb', lineHeight: 1 }}>{item.forecast}{item.unit && !String(item.forecast).includes('(') ? <span style={{ fontSize: '10px', marginLeft: '1mm' }}>{item.unit}</span> : ''}</div>
           </div>
-          {item.sourceCount && <div style={{ marginTop: '3mm', textAlign: 'center', fontSize: '10px', fontWeight: 950, color: '#1e40af' }}>{formatSourceBreakdown(item.sourceCount)}</div>}
+          {item.sourceCount && <div style={{ marginTop: '2.4mm', textAlign: 'center', fontSize: '10px', fontWeight: 950, color: '#1e40af' }}>{formatSourceBreakdown(item.sourceCount)}</div>}
         </div>
       </div>
-      <div style={{ marginTop: '3mm', border: '1px solid #bfdbfe', borderRadius: '8px', padding: '2.2mm 3mm', color: '#1d4ed8', fontSize: '10px', fontWeight: 950 }}>営業員別内訳</div>
+      <div style={{ marginTop: '2.6mm', border: '1px solid #bfdbfe', borderRadius: '8px', padding: '1.8mm 3mm', color: '#1d4ed8', fontSize: '10px', fontWeight: 950 }}>営業員別内訳</div>
       <PdfPrintStaffRows rows={rows} />
     </section>
   );
