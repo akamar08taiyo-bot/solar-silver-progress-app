@@ -1045,7 +1045,7 @@ const buildPdfCardPages = (branchSummary, branchTotalPersonDetailedSummary) => {
 const PdfPrintBacklogCard = ({ totalAmt }) => (
   <div style={{ border: '1.5px solid #cbd5e1', borderRadius: '10px', padding: '3.8mm 5mm', marginBottom: '4mm', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#f8fafc', boxSizing: 'border-box' }}>
     <div style={{ fontSize: '11px', fontWeight: 950, color: '#475569', letterSpacing: 0 }}>受注残合計（レンタル・特価見込総額）</div>
-    <div style={{ fontSize: '23px', fontWeight: 950, color: '#0f172a', lineHeight: 1 }}>¥{yenK(totalAmt)}千円</div>
+    <div style={{ minWidth: '42mm', textAlign: 'center', fontSize: '23px', fontWeight: 950, color: '#0f172a', lineHeight: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>¥{yenK(totalAmt)}千円</div>
   </div>
 );
 
@@ -1089,6 +1089,51 @@ const PdfPrintMetricCard = ({ section }) => {
     </section>
   );
 };
+
+const formatRankingPrintValue = (group, row) => group.mode === 'amount' ? `${yenK(row.amount)}千円` : `${row.count}件`;
+
+const PdfRankingCard = ({ group }) => (
+  <section style={{ border: '1.2px solid #dbeafe', borderRadius: '10px', background: '#fff', overflow: 'hidden', breakInside: 'avoid', pageBreakInside: 'avoid' }}>
+    <div style={{ padding: '3.2mm 4mm', borderBottom: '1px solid #e2e8f0', background: '#f8fafc' }}>
+      <div style={{ fontSize: '11px', fontWeight: 950, color: '#0f172a', marginBottom: '2mm' }}>{group.title}</div>
+      <div style={{ display: 'flex', gap: '2mm', flexWrap: 'wrap', fontSize: '8px', fontWeight: 900, color: '#334155' }}>
+        <span style={{ border: '1px solid #bfdbfe', borderRadius: '5px', padding: '1mm 1.8mm', background: '#eff6ff' }}>包括 {group.sourceCount?.['包括'] || 0}件</span>
+        <span style={{ border: '1px solid #bbf7d0', borderRadius: '5px', padding: '1mm 1.8mm', background: '#ecfdf5' }}>居宅 {group.sourceCount?.['居宅'] || 0}件</span>
+        <span style={{ border: '1px solid #cbd5e1', borderRadius: '5px', padding: '1mm 1.8mm', background: '#f8fafc' }}>連携室 {group.sourceCount?.['退院/連携室'] || 0}件</span>
+      </div>
+    </div>
+    <div>
+      {group.rows.map((row, index) => (
+        <div key={`${group.title}-${row.label}-${index}`} style={{ display: 'grid', gridTemplateColumns: '8mm 1fr 18mm', gap: '2mm', alignItems: 'center', padding: '2.2mm 4mm', borderBottom: index === group.rows.length - 1 ? 'none' : '1px solid #e2e8f0', fontSize: '9px', fontWeight: 900, color: '#0f172a', minHeight: '8.5mm' }}>
+          <div style={{ width: '6mm', height: '6mm', border: '1px solid #cbd5e1', borderRadius: '4px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#334155' }}>{index + 1}</div>
+          <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{row.label}</div>
+          <div style={{ textAlign: 'right', color: '#1d4ed8', fontWeight: 950, whiteSpace: 'nowrap' }}>
+            {formatRankingPrintValue(group, row)}
+            {group.mode === 'amount' && <div style={{ color: '#64748b', fontSize: '7px', lineHeight: 1.1 }}>{row.count}件</div>}
+          </div>
+        </div>
+      ))}
+      {!group.rows.length && <div style={{ padding: '8mm 4mm', textAlign: 'center', fontSize: '9px', fontWeight: 900, color: '#64748b' }}>表示できるデータはまだありません</div>}
+    </div>
+  </section>
+);
+
+const PdfRankingPage = ({ rankingInsights, groups, pageIndex, pageTotal, branchName, currentMonth }) => (
+  <div className="pdf-page p-[12mm]" style={{ width: '210mm', height: '297mm', boxSizing: 'border-box', display: 'flex', flexDirection: 'column', backgroundColor: '#fff', letterSpacing: 0, fontKerning: 'normal', overflow: 'hidden' }}>
+    <PdfHeader branchName={branchName} currentMonth={currentMonth} compact />
+    <div style={{ marginBottom: '5mm' }}>
+      <h2 style={{ borderLeft: '6px solid #1e293b', paddingLeft: '4mm', fontSize: '18px', fontWeight: 950, lineHeight: 1.2, color: '#0f172a' }}>ランキング</h2>
+      <div style={{ marginTop: '2mm', display: 'flex', justifyContent: 'space-between', gap: '4mm', alignItems: 'center' }}>
+        <div style={{ fontSize: '10px', fontWeight: 900, color: '#334155' }}>{rankingInsights.periodLabel} / {rankingInsights.branch.title} / {rankingInsights.branch.rankingLabel}</div>
+        <div style={{ fontSize: '9px', fontWeight: 900, color: '#1e40af' }}>{formatSourceBreakdown(rankingInsights.branch.sourceCount)}</div>
+      </div>
+    </div>
+    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '5mm', alignItems: 'start', flex: '1 1 auto' }}>
+      {groups.map((group) => <PdfRankingCard key={group.title} group={group} />)}
+    </div>
+    <div className="mt-auto pt-4 text-right text-[10px] text-slate-900 font-bold border-t border-slate-200">太陽シルバーサービス株式会社 {branchName} ランキング / {pageIndex + 1}/{pageTotal}ページ</div>
+  </div>
+);
 
 const PdfBreakdownTable = ({ rows }) => (
   <div style={{ borderTop: pdfCellBorder, borderLeft: pdfCellBorder, width: '100%', boxSizing: 'border-box' }}>
@@ -1146,8 +1191,9 @@ const PdfStaffTable = ({ people, includeTotal = false }) => {
   );
 };
 
-const PDFTemplate = React.forwardRef(({ branchName, currentMonth, branchSummary, branchTotalPersonDetailedSummary }, ref) => {
+const PDFTemplate = React.forwardRef(({ branchName, currentMonth, branchSummary, branchTotalPersonDetailedSummary, rankingInsights }, ref) => {
   const cardPages = buildPdfCardPages(branchSummary, branchTotalPersonDetailedSummary);
+  const rankingPages = chunkArray(rankingInsights?.branch?.groups || [], 4);
   return (
   <div ref={ref} style={{ width: '210mm', background: 'white', position: 'fixed', left: '-10000px', top: '0', color: '#0f172a', zoom: 1, transform: 'none', letterSpacing: 0, boxSizing: 'border-box' }}>
     {cardPages.map((page, index) => (
@@ -1159,6 +1205,9 @@ const PDFTemplate = React.forwardRef(({ branchName, currentMonth, branchSummary,
         </div>
         <div className="mt-auto pt-4 text-right text-[10px] text-slate-900 font-bold border-t border-slate-200">太陽シルバーサービス株式会社 {branchName} 進捗管理報告 / {index + 1}/{cardPages.length}ページ</div>
       </div>
+    ))}
+    {rankingInsights && rankingPages.map((groups, index) => (
+      <PdfRankingPage key={`ranking-page-${index}`} rankingInsights={rankingInsights} groups={groups} pageIndex={index} pageTotal={rankingPages.length} branchName={branchName} currentMonth={currentMonth} />
     ))}
   </div>
   );
@@ -1737,7 +1786,7 @@ const MainApp = ({ branchSetting }) => {
     <div id="app-root" className="min-h-screen bg-slate-50 text-slate-800 font-sans pb-12 antialiased" style={{ zoom: zoomLevel }}>
       {notification && <div className="fixed top-6 left-1/2 -translate-x-1/2 z-[100] px-6 py-3 rounded-xl shadow-xl font-bold text-sm bg-slate-900 text-white flex items-center gap-3 border border-white/10 print:hidden"><CheckCircle2 size={18} className="text-emerald-400" />{notification}</div>}
       {showUpdateConfirm && <UpdateConfirmModal salespersons={salespersons} onClose={() => setShowUpdateConfirm(false)} onConfirm={handleConfirmStaffUpdate} />}
-      <PDFTemplate branchName={BRANCH_NAME} currentMonth={currentMonth} branchSummary={branchSummary} branchTotalPersonDetailedSummary={branchTotalPersonDetailedSummary} />
+      <PDFTemplate branchName={BRANCH_NAME} currentMonth={currentMonth} branchSummary={branchSummary} branchTotalPersonDetailedSummary={branchTotalPersonDetailedSummary} rankingInsights={rankingInsights} />
       <header className="bg-white border-b border-slate-100 sticky top-0 z-50 shadow-sm print:hidden">
         <div className="max-w-6xl mx-auto px-5 h-20 flex items-center justify-between">
           <div className="flex items-center gap-4"><ShieldCheck size={32} className="text-blue-500 hidden sm:block" /><div><h1 className="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight">受注残・進捗管理表</h1><p className="text-xs font-bold text-blue-500">{BRANCH_NAME}</p></div></div>
