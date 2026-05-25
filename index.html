@@ -736,14 +736,6 @@ const buildProgressTotalRow = (rows) => {
   return total;
 };
 
-const progressCombinedValue = (p, col) => {
-  const metric = p.current[col.key];
-  const cnt = Number(metric.doneCnt || 0) + Number(metric.forecastCnt || 0);
-  const amt = Number(metric.doneAmt || 0) + Number(metric.forecastAmt || 0);
-  if (col.isAmount) return `${cnt}件(${yenK(amt)}千円)`;
-  return `${cnt}`;
-};
-
 const ProgressTable = ({ data, staffIdFilter }) => {
   const filteredRows = data.filter((p) => staffIdFilter === 'all' || p.id === staffIdFilter);
   const rows = staffIdFilter === 'all' && filteredRows.length ? [buildProgressTotalRow(filteredRows), ...filteredRows] : filteredRows;
@@ -773,7 +765,6 @@ const ProgressTable = ({ data, staffIdFilter }) => {
                         <ProgressMetric label="実績" value={progressDisplayValue(p, col, 'done')} />
                         <ProgressMetric label="見込み" value={progressDisplayValue(p, col, 'forecast')} blue />
                         <SourceBreakdown sourceCount={p.current[col.key].sourceCount} />
-                        <ProgressSubMetric label="実績+見込" value={progressCombinedValue(p, col)} />
                       </>
                     )}
                   </div>
