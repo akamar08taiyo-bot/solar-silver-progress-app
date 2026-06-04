@@ -157,7 +157,7 @@ const createSourceCount = () => ({ 包括: 0, 居宅: 0, '退院/連携室': 0 }
 const formatSourceBreakdown = (sourceCount) => `包括:${sourceCount?.['包括'] || 0} 居宅:${sourceCount?.['居宅'] || 0} 連携室:${sourceCount?.['退院/連携室'] || 0}`;
 const inferSourceFromCareHomeName = (value) => {
   const normalized = String(value || '').replace(/\s+/g, '');
-  return normalized.includes('相談支援センター') || normalized.includes('包括支援センター') ? '包括' : '居宅';
+  return normalized.includes('相談支援センター') || normalized.includes('包括') ? '包括' : '居宅';
 };
 const formatMinuteDateTime = (value) => {
   if (!value) return '-';
