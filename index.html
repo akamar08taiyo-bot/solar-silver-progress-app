@@ -155,6 +155,10 @@ const yenK = (amount) => Math.floor(Number(amount || 0) / 1000).toLocaleString()
 const formatMonth = (month) => `${month.split('-')[0]}年${Number(month.split('-')[1])}月`;
 const createSourceCount = () => ({ 包括: 0, 居宅: 0, '退院/連携室': 0 });
 const formatSourceBreakdown = (sourceCount) => `包括:${sourceCount?.['包括'] || 0} 居宅:${sourceCount?.['居宅'] || 0} 連携室:${sourceCount?.['退院/連携室'] || 0}`;
+const inferSourceFromCareHomeName = (value) => {
+  const normalized = String(value || '').replace(/\s+/g, '');
+  return normalized.includes('相談支援センター') || normalized.includes('包括支援センター') ? '包括' : '居宅';
+};
 const formatMinuteDateTime = (value) => {
   if (!value) return '-';
   const date = new Date(value);
@@ -1466,12 +1470,18 @@ const MainApp = ({ branchSetting }) => {
     const updateData = { [field]: value };
     if (field === 'category') {
       updateData.status = getStatusesByCategory(value)[0];
+      const order = orders.find((item) => item.id === id);
+      updateData.source = OTHER_SALES_CATS.includes(value) ? 'その他' : inferSourceFromCareHomeName(order?.careHomeName);
       if (!APPLICATION_MARK_CATEGORIES.includes(value)) updateData.isApplying = false;
+    }
+    if (field === 'careHomeName') {
+      const order = orders.find((item) => item.id === id);
+      if (!OTHER_SALES_CATS.includes(order?.category)) updateData.source = inferSourceFromCareHomeName(value);
     }
     if (field === 'isCarryOver' && value) updateData.isMoveToPrevious = false;
     if (field === 'isMoveToPrevious' && value) updateData.isCarryOver = false;
     await updateDoc(doc(db, ...basePath, 'orders', id), updateData);
-  }, [basePath]);
+  }, [basePath, orders]);
   const deleteOrder = useCallback(async (id) => { await deleteDoc(doc(db, ...basePath, 'orders', id)); showMessage('削除しました'); }, [basePath, showMessage]);
 
   const handleEntrySubmit = useCallback(async (data) => {
@@ -1490,7 +1500,7 @@ const MainApp = ({ branchSetting }) => {
       customerName: '',
       careHomeName: '',
       category,
-      source: OTHER_SALES_CATS.includes(category) ? 'その他' : sources[0],
+      source: OTHER_SALES_CATS.includes(category) ? 'その他' : inferSourceFromCareHomeName(''),
       amount: '',
       status: getStatusesByCategory(category)[0],
       isCarryOver: false,
