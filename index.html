@@ -392,7 +392,7 @@ const BranchSourceFilter = ({ currentFilter, onChange, prefix }) => (
 
 const statRows = (summary) => [
   { key: 'rentalNew', label: 'レンタル新規', actual: summary.rentalNew.doneCnt, forecast: summary.rentalNew.forecastCnt, unit: '件', sourceCount: summary.rentalNew.sourceCount },
-  { key: 'bed', label: '特価ベッド', actual: summary.bed.doneCnt, forecast: summary.bed.forecastCnt, unit: '台', sourceCount: summary.bed.sourceCount },
+  { key: 'bed', label: '特価ベッド', actual: summary.bed.doneCnt, forecast: summary.bed.forecastCnt, unit: '件', sourceCount: summary.bed.sourceCount },
   { key: 'renovation', label: '住宅改修', actual: `${summary.renovation.doneCnt}件(${yenK(summary.renovation.doneAmt)}千円)`, forecast: `${summary.renovation.forecastCnt}件(${yenK(summary.renovation.forecastAmt)}千円)`, sourceCount: summary.renovation.sourceCount },
   { key: 'equipment', label: '特定福祉用具', actual: `${summary.equipment.doneCnt}件(${yenK(summary.equipment.doneAmt)}千円)`, forecast: `${summary.equipment.forecastCnt}件(${yenK(summary.equipment.forecastAmt)}千円)`, sourceCount: summary.equipment.sourceCount },
   { key: 'otherSales', label: 'その他販売', actual: yenK(summary.otherSales.doneAmt), forecast: yenK(summary.otherSales.forecastAmt), unit: '千円' }
@@ -400,13 +400,32 @@ const statRows = (summary) => [
 
 const getStaffSourceRows = (staffBreakdown, key) => (staffBreakdown || [])
   .filter((staff) => staff?.id && staff?.current?.[key])
-  .map((staff) => ({ id: staff.id, name: staff.name, key, sourceCount: staff.current[key].sourceCount || createSourceCount(), totalCnt: Number(staff.current[key].forecastCnt || 0), totalAmt: Number(staff.current[key].forecastAmt || 0) }))
+  .map((staff) => ({
+    id: staff.id,
+    name: staff.name,
+    key,
+    sourceCount: staff.current[key].sourceCount || createSourceCount(),
+    doneCnt: Number(staff.current[key].doneCnt || 0),
+    doneAmt: Number(staff.current[key].doneAmt || 0),
+    totalCnt: Number(staff.current[key].forecastCnt || 0),
+    totalAmt: Number(staff.current[key].forecastAmt || 0)
+  }))
   .filter((row) => row.totalCnt > 0 || row.totalAmt > 0 || Object.values(row.sourceCount).some((v) => Number(v || 0) > 0));
 
 const formatBreakdownTotal = (key, totalCnt, totalAmt) => {
-  if (key === 'bed') return `${totalCnt}台`;
+  if (key === 'bed') return `${totalCnt}件`;
   if (key === 'renovation' || key === 'equipment') return `${totalCnt}件(${yenK(totalAmt)}千円)`;
   return `${totalCnt}件`;
+};
+
+const formatStaffActualAndTotal = (row) => {
+  if (row.key === 'renovation' || row.key === 'equipment') {
+    return `実績:${row.doneCnt}件(${yenK(row.doneAmt)}千円) 合計:${formatBreakdownTotal(row.key, row.totalCnt ?? row.forecastCnt, row.totalAmt ?? row.forecastAmt)}`;
+  }
+  if (row.key === 'rentalNew' || row.key === 'bed') {
+    return `実績:${row.doneCnt}件 合計:${row.totalCnt ?? row.forecastCnt}件`;
+  }
+  return `合計:${formatBreakdownTotal(row.key, row.totalCnt ?? row.forecastCnt, row.totalAmt ?? row.forecastAmt)}`;
 };
 
 const formatOtherSalesBreakdown = (categoryAmounts = {}) => OTHER_SALES_CATS
@@ -414,6 +433,13 @@ const formatOtherSalesBreakdown = (categoryAmounts = {}) => OTHER_SALES_CATS
   .filter((item) => item.amount > 0)
   .map((item) => `${item.label}:${yenK(item.amount)}千円`)
   .join(' ');
+
+const formatSummaryDisplayValue = (item, kind) => {
+  const value = item[kind];
+  if (item.key === 'rentalNew' || item.key === 'bed') return `${value}件`;
+  if (item.key === 'otherSales') return `${value}千円`;
+  return value;
+};
 
 const getPrintCardStaffRows = (staffBreakdown, key) => (staffBreakdown || [])
   .filter((staff) => staff?.id && staff?.current?.[key])
@@ -440,7 +466,7 @@ const StaffSourceBreakdownPanel = ({ rows, pdf = false }) => {
       {rows.map((row) => (
         <div key={row.id} className={`${pdf ? 'text-[9px]' : 'text-[11px] sm:text-xs'} grid grid-cols-[minmax(64px,1fr)_auto] gap-2 font-extrabold text-slate-700`}>
           <span className="truncate">{row.name}</span>
-          <span className="whitespace-nowrap">合計:{formatBreakdownTotal(row.key, row.totalCnt, row.totalAmt)} 包括:{row.sourceCount['包括'] || 0} 居宅:{row.sourceCount['居宅'] || 0} 連携室:{row.sourceCount['退院/連携室'] || 0}</span>
+          <span className="whitespace-nowrap">{formatStaffActualAndTotal(row)} 包括:{row.sourceCount['包括'] || 0} 居宅:{row.sourceCount['居宅'] || 0} 連携室:{row.sourceCount['退院/連携室'] || 0}</span>
         </div>
       ))}
     </div>
@@ -458,12 +484,12 @@ const BranchSummaryCards = ({ summary, staffBreakdown = [], openMap = {}, onTogg
         <div className="flex flex-col gap-3 flex-1 justify-center min-w-0">
           <div className="flex items-center justify-between h-[40px]">
             <div className="flex items-center gap-1.5 w-[85px] shrink-0"><div className="w-1 h-3.5 bg-slate-200 rounded-full" /><span className="text-sm font-bold text-slate-700">実績</span></div>
-            <span className="text-2xl sm:text-3xl font-bold text-slate-700 leading-none flex-1 truncate text-center">{item.actual}{item.unit && !String(item.actual).includes('(') ? <span className="text-xs ml-0.5 align-bottom">{item.unit}</span> : ''}</span>
+            <span className="text-2xl sm:text-3xl font-bold text-slate-700 leading-none flex-1 truncate text-center">{formatSummaryDisplayValue(item, 'actual')}</span>
           </div>
           <div className="flex flex-col border-t border-blue-50 bg-blue-50/20 -mx-4 px-4 pt-3 pb-2 min-h-[85px]">
             <div className="flex items-center justify-between">
-              <div className="flex items-center gap-1.5 w-[85px] shrink-0"><div className="w-1 h-3 bg-blue-400 rounded-full" /><span className="text-sm font-bold text-blue-600">見込み</span></div>
-              <span className="text-2xl sm:text-3xl font-bold text-blue-600 leading-none flex-1 truncate text-center">{item.forecast}{item.unit && !String(item.forecast).includes('(') ? <span className="text-xs ml-0.5 align-bottom">{item.unit}</span> : ''}</span>
+              <div className="flex items-center gap-1.5 w-[85px] shrink-0"><div className="w-1 h-3 bg-blue-400 rounded-full" /><span className="text-sm font-bold text-blue-600">合計</span></div>
+              <span className="text-2xl sm:text-3xl font-bold text-blue-600 leading-none flex-1 truncate text-center">{formatSummaryDisplayValue(item, 'forecast')}</span>
             </div>
             {item.sourceCount ? (
               <div className="flex justify-start mt-2 text-[11px] sm:text-[13px] font-extrabold text-blue-800 gap-x-5 pl-[26px]">
@@ -552,11 +578,13 @@ const NewEntryForm = React.memo(({ salespersons, onSubmit, selectedStaffId, onSt
   const [data, setData] = useState({ customerName: '', careHomeName: '', category: RENTAL_CATEGORIES[0], source: sources[0], amount: '', status: '未確定', isCarryOver: false, billingType: 'full' });
   const [showOptionalCategories, setShowOptionalCategories] = useState(() => localStorage.getItem('solar_silver_optional_categories_open') === 'true');
   const rentalWithBilling = RENTAL_CATEGORIES.includes(data.category) && data.category !== '特価ベッド';
+  const isOtherSalesCategory = OTHER_SALES_CATS.includes(data.category);
   const primaryCategories = useMemo(() => allCategories.filter((c) => !OTHER_SALES_CATS.includes(c)), []);
   const optionalCategories = OTHER_SALES_CATS;
   const categoryButtonClass = useCallback((category) => `min-h-[74px] sm:min-h-[88px] flex items-center justify-center py-3 sm:py-4 px-1 rounded-xl font-bold text-[10px] sm:text-sm border-2 transition-all ${data.category === category ? 'bg-blue-500 border-blue-500 text-white shadow-lg scale-105' : 'bg-white border-slate-200 text-slate-700 hover:border-blue-400'}`, [data.category]);
   const handleCategorySelect = useCallback((category) => {
-    setData((prev) => ({ ...prev, category, status: getStatusesByCategory(category)[0], source: OTHER_SALES_CATS.includes(category) ? 'その他' : prev.source }));
+    const isOther = OTHER_SALES_CATS.includes(category);
+    setData((prev) => ({ ...prev, category, status: getStatusesByCategory(category)[0], source: isOther ? 'その他' : (prev.source === 'その他' ? sources[0] : prev.source), careHomeName: isOther ? '' : prev.careHomeName }));
   }, []);
   const handleOptionalToggle = useCallback(() => {
     setShowOptionalCategories((open) => {
@@ -602,7 +630,7 @@ const NewEntryForm = React.memo(({ salespersons, onSubmit, selectedStaffId, onSt
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6 pt-6 border-t-2 border-slate-100">
           <Field label="担当者"><select value={selectedStaffId} onChange={(e) => onStaffChange(Number(e.target.value))} className="field-input text-lg">{salespersons.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}</select></Field>
-          <Field label="利用者様名"><input value={data.customerName} onChange={(e) => setData({ ...data, customerName: e.target.value })} placeholder="お名前" className="field-input text-lg" {...JAPANESE_TEXT_INPUT_PROPS} /></Field>
+          <Field label={isOtherSalesCategory ? '施設・病院名（一般利用者含む）' : '利用者様名'}><input value={data.customerName} onChange={(e) => setData({ ...data, customerName: e.target.value })} placeholder={isOtherSalesCategory ? '施設・病院名など' : 'お名前'} className="field-input text-lg" {...JAPANESE_TEXT_INPUT_PROPS} /></Field>
           <Field label={RENTAL_CATEGORIES.includes(data.category) ? '金額' : '金額(税抜)'}>
             {rentalWithBilling && (
               <div className="absolute right-1 -top-4 flex flex-row flex-nowrap bg-slate-100 rounded-lg p-0.5 border border-slate-200 shadow-sm z-10">
@@ -613,8 +641,8 @@ const NewEntryForm = React.memo(({ salespersons, onSubmit, selectedStaffId, onSt
             <input type="number" value={data.amount} onChange={(e) => setData({ ...data, amount: e.target.value })} placeholder="¥" className="field-input text-2xl" />
           </Field>
           <Field label="状態"><select value={data.status} onChange={(e) => setData({ ...data, status: e.target.value })} className="field-input text-base">{getStatusesByCategory(data.category).map((s) => <option key={s}>{s}</option>)}</select></Field>
-          {!OTHER_SALES_CATS.includes(data.category) && <Field label="区分"><select value={data.source} onChange={(e) => setData({ ...data, source: e.target.value })} className="field-input text-base">{sources.map((s) => <option key={s}>{s}</option>)}</select></Field>}
-          <Field label="事業所名"><input value={data.careHomeName} onChange={(e) => setData({ ...data, careHomeName: e.target.value })} placeholder="居宅名など" className="field-input text-base" {...JAPANESE_TEXT_INPUT_PROPS} /></Field>
+          {!isOtherSalesCategory && <Field label="区分"><select value={data.source} onChange={(e) => setData({ ...data, source: e.target.value })} className="field-input text-base">{sources.map((s) => <option key={s}>{s}</option>)}</select></Field>}
+          {!isOtherSalesCategory && <Field label="事業所名"><input value={data.careHomeName} onChange={(e) => setData({ ...data, careHomeName: e.target.value })} placeholder="居宅名など" className="field-input text-base" {...JAPANESE_TEXT_INPUT_PROPS} /></Field>}
         </div>
         <div className="flex flex-col sm:flex-row justify-between items-center gap-6 pt-6 border-t-2 border-slate-100">
           <label className="flex items-center gap-3 cursor-pointer"><input type="checkbox" checked={data.isCarryOver} onChange={(e) => setData({ ...data, isCarryOver: e.target.checked })} className="w-6 h-6 rounded border-slate-200 text-blue-500 shadow-sm" /><span className="font-bold text-slate-700">翌月繰越として登録</span></label>
@@ -634,6 +662,7 @@ const Field = ({ label, children }) => (
 
 const OrderRow = React.memo(({ order, onUpdate, onDelete, staffName, showStaffName }) => {
   const canMarkApplying = APPLICATION_MARK_CATEGORIES.includes(order.category);
+  const isOtherSalesCategory = OTHER_SALES_CATS.includes(order.category);
   const changeBilling = async (billingType) => {
     if (order.billingType === billingType) return;
     const amount = Number(order.amount || 0);
@@ -652,10 +681,10 @@ const OrderRow = React.memo(({ order, onUpdate, onDelete, staffName, showStaffNa
               {allCategories.map((c) => <option key={c}>{c}</option>)}
             </select>
           </div>
-          <AutoSaveInput value={order.customerName} saveId={order.id} saveField="customerName" onSave={onUpdate} className="w-full bg-transparent border-none outline-none font-bold text-sm text-slate-800 px-1 py-0.5 focus:bg-white focus:rounded min-w-0" />
+          <AutoSaveInput value={order.customerName} saveId={order.id} saveField="customerName" onSave={onUpdate} placeholder={isOtherSalesCategory ? '施設・病院名' : '利用者名'} className="w-full bg-transparent border-none outline-none font-bold text-sm text-slate-800 px-1 py-0.5 focus:bg-white focus:rounded min-w-0" />
         </div>
       </td>
-      <td className="py-1 px-2 w-[17%]"><AutoSaveInput value={order.careHomeName} saveId={order.id} saveField="careHomeName" placeholder="事業所名" onSave={onUpdate} className="w-full bg-transparent border-none outline-none text-xs text-slate-600 font-bold px-1 py-0.5 focus:bg-white focus:rounded" /></td>
+      <td className="py-1 px-2 w-[17%]">{isOtherSalesCategory ? <span className="block text-xs text-slate-400 font-bold px-1 py-0.5">対象外</span> : <AutoSaveInput value={order.careHomeName} saveId={order.id} saveField="careHomeName" placeholder="事業所名" onSave={onUpdate} className="w-full bg-transparent border-none outline-none text-xs text-slate-600 font-bold px-1 py-0.5 focus:bg-white focus:rounded" />}</td>
       <td className="py-1 px-2 w-[12%] text-center">
         {RENTAL_CATEGORIES.includes(order.category) && order.category !== '特価ベッド' && (
           <div className="flex flex-col items-center gap-1">
@@ -1072,9 +1101,8 @@ const PdfPrintBacklogCard = ({ totalAmt }) => (
 );
 
 const formatPrintStaffValue = (row) => {
-  if (row.key === 'rentalNew') return `見込み:${row.forecastCnt}件`;
-  if (row.key === 'bed') return `実績:${row.doneCnt}件 見込み:${row.forecastCnt}件`;
-  if (row.key === 'otherSales') return formatOtherSalesBreakdown(row.categoryAmounts) || `見込み:${yenK(row.forecastAmt)}千円`;
+  if (row.key === 'rentalNew' || row.key === 'bed' || row.key === 'renovation' || row.key === 'equipment') return formatStaffActualAndTotal(row);
+  if (row.key === 'otherSales') return formatOtherSalesBreakdown(row.categoryAmounts) || `合計:${yenK(row.forecastAmt)}千円`;
   return `合計:${formatBreakdownTotal(row.key, row.forecastCnt, row.forecastAmt)}`;
 };
 
@@ -1109,7 +1137,7 @@ const PdfPrintMetricCard = ({ section }) => {
         </div>
         <div style={{ padding: '2.2mm 4mm', background: '#f8fbff', borderTop: '1px solid #e2e8f0' }}>
           <div style={{ display: 'grid', gridTemplateColumns: '25mm 1fr', alignItems: 'center' }}>
-            <div style={{ fontSize: '11px', fontWeight: 950, color: '#2563eb' }}>見込み</div>
+            <div style={{ fontSize: '11px', fontWeight: 950, color: '#2563eb' }}>合計</div>
             <div style={{ textAlign: 'center', fontSize: isAmountCard ? '24px' : '26px', fontWeight: 950, color: '#2563eb', lineHeight: 1 }}>{formatPrintMetricValue(item, 'forecast')}</div>
           </div>
           {item.sourceCount && <div style={{ marginTop: '2.4mm', textAlign: 'center', fontSize: '10px', fontWeight: 950, color: '#1e40af' }}>{formatSourceBreakdown(item.sourceCount)}</div>}
@@ -1135,9 +1163,9 @@ const PdfRankingCard = ({ group }) => (
     </div>
     <div>
       {group.rows.map((row, index) => (
-        <div key={`${group.title}-${row.label}-${index}`} style={{ display: 'grid', gridTemplateColumns: '8mm 1fr 18mm', gap: '2mm', alignItems: 'center', padding: '2.2mm 4mm', borderBottom: index === group.rows.length - 1 ? 'none' : '1px solid #e2e8f0', fontSize: '9px', fontWeight: 900, color: '#0f172a', minHeight: '8.5mm' }}>
+        <div key={`${group.title}-${row.label}-${index}`} style={{ display: 'grid', gridTemplateColumns: '8mm minmax(0,1fr) 20mm', gap: '2mm', alignItems: 'center', padding: '2.2mm 4mm', borderBottom: index === group.rows.length - 1 ? 'none' : '1px solid #e2e8f0', fontSize: '8.6px', fontWeight: 900, color: '#0f172a', minHeight: '9.5mm' }}>
           <div style={{ width: '6mm', height: '6mm', border: '1px solid #cbd5e1', borderRadius: '4px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#334155' }}>{index + 1}</div>
-          <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{row.label}</div>
+          <div style={{ minWidth: 0, overflowWrap: 'anywhere', wordBreak: 'break-word', whiteSpace: 'normal', lineHeight: 1.18 }}>{row.label}</div>
           <div style={{ textAlign: 'right', color: '#1d4ed8', fontWeight: 950, whiteSpace: 'nowrap' }}>
             {formatRankingPrintValue(group, row)}
             {group.mode === 'amount' && <div style={{ color: '#64748b', fontSize: '7px', lineHeight: 1.1 }}>{row.count}件</div>}
@@ -1491,6 +1519,7 @@ const MainApp = ({ branchSetting }) => {
       updateData.status = getStatusesByCategory(value)[0];
       const order = orders.find((item) => item.id === id);
       updateData.source = OTHER_SALES_CATS.includes(value) ? 'その他' : inferSourceFromCareHomeName(order?.careHomeName);
+      if (OTHER_SALES_CATS.includes(value)) updateData.careHomeName = '';
       if (!APPLICATION_MARK_CATEGORIES.includes(value)) updateData.isApplying = false;
     }
     if (field === 'careHomeName') {
