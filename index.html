@@ -114,6 +114,8 @@ const CATEGORY_TO_KEY = {
   消耗品: 'otherSales'
 };
 
+const OTHER_SALES_LABELS = { 一般販売: 'その他販売', 紙おむつ: '紙おむつ', 消耗品: '消耗品' };
+
 const TREND_CAT_KEY = {
   レンタル新規: { key: 'rentalNew', isAmt: false },
   特価ベッド: { key: 'bed', isAmt: false },
@@ -407,6 +409,12 @@ const formatBreakdownTotal = (key, totalCnt, totalAmt) => {
   return `${totalCnt}件`;
 };
 
+const formatOtherSalesBreakdown = (categoryAmounts = {}) => OTHER_SALES_CATS
+  .map((category) => ({ label: OTHER_SALES_LABELS[category] || category, amount: Number(categoryAmounts[category] || 0) }))
+  .filter((item) => item.amount > 0)
+  .map((item) => `${item.label}:${yenK(item.amount)}千円`)
+  .join(' ');
+
 const getPrintCardStaffRows = (staffBreakdown, key) => (staffBreakdown || [])
   .filter((staff) => staff?.id && staff?.current?.[key])
   .map((staff) => {
@@ -419,7 +427,8 @@ const getPrintCardStaffRows = (staffBreakdown, key) => (staffBreakdown || [])
       doneCnt: Number(metric.doneCnt || 0),
       doneAmt: Number(metric.doneAmt || 0),
       forecastCnt: Number(metric.forecastCnt || 0),
-      forecastAmt: Number(metric.forecastAmt || 0)
+      forecastAmt: Number(metric.forecastAmt || 0),
+      categoryAmounts: metric.categoryAmounts || {}
     };
   })
   .filter((row) => row.doneCnt > 0 || row.doneAmt > 0 || row.forecastCnt > 0 || row.forecastAmt > 0 || Object.values(row.sourceCount).some((v) => Number(v || 0) > 0));
@@ -987,6 +996,7 @@ const PDF_BREAKDOWN_PAGE_UNITS = 20;
 const PDF_BREAKDOWN_SECTION_BASE_UNITS = 4;
 const PDF_BREAKDOWN_LONG_SECTION_ROWS = PDF_BREAKDOWN_PAGE_UNITS - PDF_BREAKDOWN_SECTION_BASE_UNITS;
 const PDF_BREAKDOWN_ORDER = ['rentalNew', 'renovation', 'equipment', 'bed'];
+const PDF_CARD_ORDER = ['rentalNew', 'renovation', 'equipment', 'bed', 'otherSales'];
 const PDF_CARD_PAGE_UNITS = 56;
 const PDF_CARD_FIRST_PAGE_BACKLOG_UNITS = 3;
 const PDF_CARD_SECTION_BASE_UNITS = 7;
@@ -1022,7 +1032,7 @@ const buildPdfBreakdownPages = (branchSummary, branchTotalPersonDetailedSummary)
 };
 
 const buildPdfCardSections = (branchSummary, branchTotalPersonDetailedSummary) =>
-  PDF_BREAKDOWN_ORDER.map((key) => statRows(branchSummary).find((item) => item.key === key)).filter(Boolean).flatMap((item) => {
+  PDF_CARD_ORDER.map((key) => statRows(branchSummary).find((item) => item.key === key)).filter(Boolean).flatMap((item) => {
     const rows = getPrintCardStaffRows(branchTotalPersonDetailedSummary, item.key);
     if (rows.length <= PDF_CARD_LONG_SECTION_ROWS) return [{ item, rows, pageIndex: 0, pageTotal: 1 }];
     const chunks = chunkArray(rows, PDF_CARD_LONG_SECTION_ROWS);
@@ -1036,7 +1046,7 @@ const buildPdfCardPages = (branchSummary, branchTotalPersonDetailedSummary) => {
   if (maxRows >= 9) {
     return [
       { sections: sections.filter((section) => ['rentalNew', 'renovation'].includes(section.item.key)), showBacklog: true },
-      { sections: sections.filter((section) => ['equipment', 'bed'].includes(section.item.key)), showBacklog: false }
+      { sections: sections.filter((section) => ['equipment', 'bed', 'otherSales'].includes(section.item.key)), showBacklog: false }
     ].filter((page) => page.showBacklog || page.sections.length);
   }
   const pages = [];
@@ -1062,8 +1072,17 @@ const PdfPrintBacklogCard = ({ totalAmt }) => (
 );
 
 const formatPrintStaffValue = (row) => {
-  if (row.key === 'bed') return `実績:${row.doneCnt}台 見込み:${row.forecastCnt}台`;
+  if (row.key === 'rentalNew') return `見込み:${row.forecastCnt}件`;
+  if (row.key === 'bed') return `実績:${row.doneCnt}件 見込み:${row.forecastCnt}件`;
+  if (row.key === 'otherSales') return formatOtherSalesBreakdown(row.categoryAmounts) || `見込み:${yenK(row.forecastAmt)}千円`;
   return `合計:${formatBreakdownTotal(row.key, row.forecastCnt, row.forecastAmt)}`;
+};
+
+const formatPrintMetricValue = (item, kind) => {
+  const value = item[kind];
+  if (item.key === 'rentalNew' || item.key === 'bed') return `${value}件`;
+  if (item.key === 'otherSales') return `${value}千円`;
+  return value;
 };
 
 const PdfPrintStaffRows = ({ rows }) => (
@@ -1071,7 +1090,7 @@ const PdfPrintStaffRows = ({ rows }) => (
     {rows.map((row) => (
       <div key={row.id} style={{ display: 'grid', gridTemplateColumns: '22mm 1fr', columnGap: '3mm', fontSize: '10.2px', lineHeight: 1.28, fontWeight: 950, color: '#0f172a', marginBottom: '1.25mm', breakInside: 'avoid', pageBreakInside: 'avoid' }}>
         <div style={{ overflowWrap: 'anywhere' }}>{row.name}</div>
-        <div style={{ textAlign: 'right', overflowWrap: 'anywhere' }}>{formatPrintStaffValue(row)} 包括:{row.sourceCount['包括'] || 0} 居宅:{row.sourceCount['居宅'] || 0} 連携室:{row.sourceCount['退院/連携室'] || 0}</div>
+        <div style={{ textAlign: 'right', overflowWrap: 'anywhere' }}>{formatPrintStaffValue(row)}{row.key !== 'otherSales' ? ` 包括:${row.sourceCount['包括'] || 0} 居宅:${row.sourceCount['居宅'] || 0} 連携室:${row.sourceCount['退院/連携室'] || 0}` : ''}</div>
       </div>
     ))}
   </div>
@@ -1079,19 +1098,19 @@ const PdfPrintStaffRows = ({ rows }) => (
 
 const PdfPrintMetricCard = ({ section }) => {
   const { item, rows } = section;
-  const isAmountCard = item.key === 'renovation' || item.key === 'equipment';
+  const isAmountCard = item.key === 'renovation' || item.key === 'equipment' || item.key === 'otherSales';
   return (
     <section style={{ border: '1.5px solid #dbeafe', borderRadius: '12px', padding: '4mm', background: '#fff', boxSizing: 'border-box', minHeight: '54mm', breakInside: 'avoid', pageBreakInside: 'avoid' }}>
       <div style={{ borderLeft: '4px solid #cbd5e1', paddingLeft: '3mm', fontSize: '14px', fontWeight: 950, color: '#0f172a', lineHeight: 1.1, marginBottom: '3mm' }}>{item.label}</div>
       <div style={{ display: 'grid', gridTemplateRows: '12mm 19mm', borderRadius: '8px', overflow: 'hidden', border: '1px solid #e2e8f0' }}>
         <div style={{ display: 'grid', gridTemplateColumns: '25mm 1fr', alignItems: 'center', padding: '0 4mm', background: '#fff' }}>
           <div style={{ fontSize: '11px', fontWeight: 950, color: '#334155' }}>実績</div>
-          <div style={{ textAlign: 'center', fontSize: isAmountCard ? '24px' : '26px', fontWeight: 950, color: '#334155', lineHeight: 1 }}>{item.actual}{item.unit && !String(item.actual).includes('(') ? <span style={{ fontSize: '10px', marginLeft: '1mm' }}>{item.unit}</span> : ''}</div>
+          <div style={{ textAlign: 'center', fontSize: isAmountCard ? '24px' : '26px', fontWeight: 950, color: '#334155', lineHeight: 1 }}>{formatPrintMetricValue(item, 'actual')}</div>
         </div>
         <div style={{ padding: '2.2mm 4mm', background: '#f8fbff', borderTop: '1px solid #e2e8f0' }}>
           <div style={{ display: 'grid', gridTemplateColumns: '25mm 1fr', alignItems: 'center' }}>
             <div style={{ fontSize: '11px', fontWeight: 950, color: '#2563eb' }}>見込み</div>
-            <div style={{ textAlign: 'center', fontSize: isAmountCard ? '24px' : '26px', fontWeight: 950, color: '#2563eb', lineHeight: 1 }}>{item.forecast}{item.unit && !String(item.forecast).includes('(') ? <span style={{ fontSize: '10px', marginLeft: '1mm' }}>{item.unit}</span> : ''}</div>
+            <div style={{ textAlign: 'center', fontSize: isAmountCard ? '24px' : '26px', fontWeight: 950, color: '#2563eb', lineHeight: 1 }}>{formatPrintMetricValue(item, 'forecast')}</div>
           </div>
           {item.sourceCount && <div style={{ marginTop: '2.4mm', textAlign: 'center', fontSize: '10px', fontWeight: 950, color: '#1e40af' }}>{formatSourceBreakdown(item.sourceCount)}</div>}
         </div>
@@ -1609,7 +1628,7 @@ const MainApp = ({ branchSetting }) => {
   }, [basePath, currentMonth, listOrders, showMessage]);
 
   const summarize = useCallback((targetOrders) => {
-    const init = () => ({ doneCnt: 0, doneAmt: 0, forecastCnt: 0, forecastAmt: 0, sourceCount: createSourceCount() });
+    const init = () => ({ doneCnt: 0, doneAmt: 0, forecastCnt: 0, forecastAmt: 0, sourceCount: createSourceCount(), categoryAmounts: {} });
     const summary = { rentalNew: init(), bed: init(), renovation: init(), equipment: init(), otherSales: init(), rentalBacklogTotalAmt: 0 };
     for (const o of targetOrders) {
       const key = CATEGORY_TO_KEY[o.category];
@@ -1619,6 +1638,7 @@ const MainApp = ({ branchSetting }) => {
       if (target) {
         target.forecastCnt += 1;
         target.forecastAmt += amt;
+        if (OTHER_SALES_CATS.includes(o.category)) target.categoryAmounts[o.category] = Number(target.categoryAmounts[o.category] || 0) + amt;
         if (o.source && target.sourceCount?.[o.source] !== undefined) target.sourceCount[o.source] += 1;
         if (done) {
           target.doneCnt += 1;
@@ -1644,7 +1664,7 @@ const MainApp = ({ branchSetting }) => {
         bed: { doneCnt: 0, doneAmt: 0, forecastCnt: 0, forecastAmt: 0, sourceCount: createSourceCount() },
         renovation: { doneCnt: 0, doneAmt: 0, forecastCnt: 0, forecastAmt: 0, sourceCount: createSourceCount() },
         equipment: { doneCnt: 0, doneAmt: 0, forecastCnt: 0, forecastAmt: 0, sourceCount: createSourceCount() },
-        otherSales: { doneCnt: 0, doneAmt: 0, forecastCnt: 0, forecastAmt: 0, sourceCount: createSourceCount() },
+        otherSales: { doneCnt: 0, doneAmt: 0, forecastCnt: 0, forecastAmt: 0, sourceCount: createSourceCount(), categoryAmounts: {} },
         rentalBacklogTotalAmt: 0
       };
     });
@@ -1658,6 +1678,7 @@ const MainApp = ({ branchSetting }) => {
       if (!key) continue;
       stats[key].forecastCnt += 1;
       stats[key].forecastAmt += amt;
+      if (OTHER_SALES_CATS.includes(o.category)) stats[key].categoryAmounts[o.category] = Number(stats[key].categoryAmounts[o.category] || 0) + amt;
       if (o.source && stats[key].sourceCount?.[o.source] !== undefined) stats[key].sourceCount[o.source] += 1;
       if (done) {
         stats[key].doneCnt += 1;
