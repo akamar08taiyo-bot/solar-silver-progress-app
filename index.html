@@ -1113,12 +1113,26 @@ const formatPrintMetricValue = (item, kind) => {
   return value;
 };
 
+const formatPrintStaffMainLine = (row) => {
+  if (row.key === 'renovation' || row.key === 'equipment') {
+    return `実績:${row.doneCnt}件(${yenK(row.doneAmt)}千円) 着地合計:${row.forecastCnt}件(${yenK(row.forecastAmt)}千円)`;
+  }
+  if (row.key === 'rentalNew' || row.key === 'bed') return `実績:${row.doneCnt}件 着地合計:${row.forecastCnt}件`;
+  if (row.key === 'otherSales') return formatOtherSalesBreakdown(row.categoryAmounts) || `着地合計:${yenK(row.forecastAmt)}千円`;
+  return formatPrintStaffValue(row);
+};
+
+const formatPrintStaffSourceLine = (row) => `包括:${row.sourceCount['包括'] || 0}件、居宅:${row.sourceCount['居宅'] || 0}件、連携室:${row.sourceCount['退院/連携室'] || 0}件`;
+
 const PdfPrintStaffRows = ({ rows }) => (
   <div style={{ borderTop: '1px solid #cbd5e1', marginTop: '2.6mm', paddingTop: '2.2mm' }}>
     {rows.map((row) => (
-      <div key={row.id} style={{ display: 'grid', gridTemplateColumns: '22mm 1fr', columnGap: '3mm', fontSize: '10.2px', lineHeight: 1.28, fontWeight: 950, color: '#0f172a', marginBottom: '1.25mm', breakInside: 'avoid', pageBreakInside: 'avoid' }}>
+      <div key={row.id} style={{ display: 'grid', gridTemplateColumns: '20mm minmax(0,1fr)', columnGap: '3mm', fontSize: '9.4px', lineHeight: 1.22, fontWeight: 950, color: '#0f172a', marginBottom: '1.55mm', breakInside: 'avoid', pageBreakInside: 'avoid' }}>
         <div style={{ overflowWrap: 'anywhere' }}>{row.name}</div>
-        <div style={{ textAlign: 'right', overflowWrap: 'anywhere' }}>{formatPrintStaffValue(row)}{row.key !== 'otherSales' ? ` 包括:${row.sourceCount['包括'] || 0} 居宅:${row.sourceCount['居宅'] || 0} 連携室:${row.sourceCount['退院/連携室'] || 0}` : ''}</div>
+        <div style={{ textAlign: 'right', minWidth: 0, overflowWrap: 'anywhere', wordBreak: 'keep-all' }}>
+          <div>{formatPrintStaffMainLine(row)}</div>
+          {row.key !== 'otherSales' && <div style={{ marginTop: '0.6mm' }}>{formatPrintStaffSourceLine(row)}</div>}
+        </div>
       </div>
     ))}
   </div>
@@ -1140,7 +1154,13 @@ const PdfPrintMetricCard = ({ section }) => {
             <div style={{ fontSize: '11px', fontWeight: 950, color: '#2563eb' }}>合計</div>
             <div style={{ textAlign: 'center', fontSize: isAmountCard ? '24px' : '26px', fontWeight: 950, color: '#2563eb', lineHeight: 1 }}>{formatPrintMetricValue(item, 'forecast')}</div>
           </div>
-          {item.sourceCount && <div style={{ marginTop: '2.4mm', textAlign: 'center', fontSize: '10px', fontWeight: 950, color: '#1e40af' }}>{formatSourceBreakdown(item.sourceCount)}</div>}
+          {item.sourceCount && (
+            <div style={{ marginTop: '2.2mm', display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: '1.2mm 3mm', fontSize: '9.3px', fontWeight: 950, color: '#1e40af', lineHeight: 1.15 }}>
+              <span>包括:{item.sourceCount['包括'] || 0}件</span>
+              <span>居宅:{item.sourceCount['居宅'] || 0}件</span>
+              <span>連携室:{item.sourceCount['退院/連携室'] || 0}件</span>
+            </div>
+          )}
         </div>
       </div>
       <div style={{ marginTop: '2.6mm', border: '1px solid #bfdbfe', borderRadius: '8px', padding: '1.8mm 3mm', color: '#1d4ed8', fontSize: '10px', fontWeight: 950 }}>営業員別内訳</div>
