@@ -462,11 +462,14 @@ const getPrintCardStaffRows = (staffBreakdown, key) => (staffBreakdown || [])
 const StaffSourceBreakdownPanel = ({ rows, pdf = false }) => {
   if (!rows.length) return <div className={`${pdf ? '' : 'mt-2'} text-[11px] font-bold text-slate-500`}>営業員別の内訳はありません</div>;
   return (
-    <div className={`${pdf ? 'mt-2 space-y-1' : 'mt-3 space-y-1.5 border-t border-blue-100 pt-2'}`}>
+    <div className={`${pdf ? 'mt-2 space-y-1' : 'mt-3 space-y-2 border-t border-blue-100 pt-2'}`}>
       {rows.map((row) => (
-        <div key={row.id} className={`${pdf ? 'text-[9px]' : 'text-[11px] sm:text-xs'} grid grid-cols-[minmax(64px,1fr)_auto] gap-2 font-extrabold text-slate-700`}>
-          <span className="truncate">{row.name}</span>
-          <span className="whitespace-nowrap">{formatStaffActualAndTotal(row)} 包括:{row.sourceCount['包括'] || 0} 居宅:{row.sourceCount['居宅'] || 0} 連携室:{row.sourceCount['退院/連携室'] || 0}</span>
+        <div key={row.id} className={`${pdf ? 'text-[9px]' : 'text-[11px] sm:text-xs'} grid grid-cols-[52px_minmax(0,1fr)] sm:grid-cols-[64px_minmax(0,1fr)] gap-2 font-extrabold text-slate-700`}>
+          <span className="truncate pt-0.5">{row.name}</span>
+          <span className="min-w-0 text-right leading-snug">
+            <span className="block whitespace-normal break-words">{formatStaffActualAndTotal(row)}</span>
+            <span className="block text-blue-800 whitespace-normal break-words">包括:{row.sourceCount['包括'] || 0} 居宅:{row.sourceCount['居宅'] || 0} 連携室:{row.sourceCount['退院/連携室'] || 0}</span>
+          </span>
         </div>
       ))}
     </div>
