@@ -1179,7 +1179,7 @@ const PdfRankingCard = ({ group }) => (
   <section style={{ border: '1.2px solid #dbeafe', borderRadius: '10px', background: '#fff', overflow: 'hidden', breakInside: 'avoid', pageBreakInside: 'avoid' }}>
     <div style={{ padding: '3.2mm 4mm', borderBottom: '1px solid #e2e8f0', background: '#f8fafc' }}>
       <div style={{ fontSize: '11px', fontWeight: 950, color: '#0f172a', marginBottom: '2mm' }}>{group.title}</div>
-      <div style={{ display: 'flex', gap: '2mm', flexWrap: 'wrap', fontSize: '8px', fontWeight: 900, color: '#334155' }}>
+      <div style={{ display: 'flex', gap: '2mm', flexWrap: 'wrap', justifyContent: 'center', fontSize: '8px', fontWeight: 900, color: '#334155' }}>
         <span style={{ border: '1px solid #bfdbfe', borderRadius: '5px', padding: '1mm 1.8mm', background: '#eff6ff' }}>包括 {group.sourceCount?.['包括'] || 0}件</span>
         <span style={{ border: '1px solid #bbf7d0', borderRadius: '5px', padding: '1mm 1.8mm', background: '#ecfdf5' }}>居宅 {group.sourceCount?.['居宅'] || 0}件</span>
         <span style={{ border: '1px solid #cbd5e1', borderRadius: '5px', padding: '1mm 1.8mm', background: '#f8fafc' }}>連携室 {group.sourceCount?.['退院/連携室'] || 0}件</span>
