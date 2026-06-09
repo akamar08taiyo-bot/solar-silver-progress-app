@@ -1157,9 +1157,9 @@ const PdfPrintMetricCard = ({ section }) => {
           <div style={{ textAlign: 'center', fontSize: isAmountCard ? '23px' : '25px', fontWeight: 950, color: '#334155', lineHeight: 1, whiteSpace: 'nowrap' }}>{formatPrintMetricValue(item, 'actual')}</div>
         </div>
         <div style={{ padding: '1mm 2mm 1.6mm', background: '#fff', boxSizing: 'border-box' }}>
-          <div style={{ display: 'grid', gridTemplateColumns: '22mm minmax(0,1fr)', alignItems: 'center' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '22mm minmax(0,1fr)', alignItems: 'center', minHeight: '9mm' }}>
             <div style={{ fontSize: '10.5px', fontWeight: 950, color: '#2563eb', lineHeight: 1 }}>合計</div>
-            <div style={{ textAlign: 'center', fontSize: isAmountCard ? '23px' : '25px', fontWeight: 950, color: '#2563eb', lineHeight: 1, whiteSpace: 'nowrap' }}>{formatPrintMetricValue(item, 'forecast')}</div>
+            <div style={{ textAlign: 'center', fontSize: isAmountCard ? '23px' : '25px', fontWeight: 950, color: '#2563eb', lineHeight: 1, whiteSpace: 'nowrap', alignSelf: 'center' }}>{formatPrintMetricValue(item, 'forecast')}</div>
           </div>
           {item.sourceCount && (
             <div style={{ marginTop: '2.2mm', display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: '1.2mm 3mm', fontSize: '9.3px', fontWeight: 950, color: '#1e40af', lineHeight: 1.15 }}>
@@ -1170,7 +1170,7 @@ const PdfPrintMetricCard = ({ section }) => {
           )}
         </div>
       </div>
-      <div style={{ marginTop: '2.6mm', border: '1px solid #bfdbfe', borderRadius: '8px', padding: '1.8mm 3mm', color: '#1d4ed8', fontSize: '10px', fontWeight: 950 }}>営業員別内訳</div>
+      <div style={{ marginTop: '2.6mm', border: '1px solid #bfdbfe', borderRadius: '8px', padding: '1.8mm 3mm', color: '#1d4ed8', fontSize: '10px', fontWeight: 950, display: 'flex', alignItems: 'center', justifyContent: 'center', textAlign: 'center', lineHeight: 1 }}>営業員別内訳</div>
       <PdfPrintStaffRows rows={rows} />
     </section>
   );
