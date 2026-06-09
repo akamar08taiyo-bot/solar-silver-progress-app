@@ -485,15 +485,15 @@ const BranchSummaryCards = ({ summary, staffBreakdown = [], openMap = {}, onTogg
       return (
       <Card key={item.label} className="p-3 sm:p-4 border-slate-200 bg-white shadow-md flex flex-col min-h-[168px] justify-between group">
         <div className="text-xs sm:text-sm font-bold text-slate-700 uppercase tracking-widest leading-none border-l-4 border-slate-300 pl-3 mb-2.5 whitespace-nowrap">{item.label}</div>
-        <div className="flex flex-col gap-2 flex-1 justify-center min-w-0">
-          <div className="flex items-center justify-between h-[42px] px-1">
-            <div className="flex items-center gap-1.5 w-[76px] shrink-0"><div className="w-1 h-3.5 bg-slate-200 rounded-full" /><span className="text-sm font-bold text-slate-700">実績</span></div>
-            <span className={`${isAmountSummary ? 'text-[25px] sm:text-[29px]' : 'text-2xl sm:text-3xl'} font-bold text-slate-700 leading-none flex-1 whitespace-nowrap text-center`}>{formatSummaryDisplayValue(item, 'actual')}</span>
+        <div className="flex flex-col gap-2.5 flex-1 justify-center min-w-0">
+          <div className="grid grid-cols-[62px_minmax(0,1fr)] sm:grid-cols-[68px_minmax(0,1fr)] items-center min-h-[40px] px-1">
+            <div className="flex items-center gap-1.5 shrink-0"><div className="w-1 h-3.5 bg-slate-200 rounded-full" /><span className="text-[13px] font-bold text-slate-700">実績</span></div>
+            <span className={`${isAmountSummary ? 'text-[24px] sm:text-[28px]' : 'text-2xl sm:text-3xl'} font-bold text-slate-700 leading-none whitespace-nowrap text-center`}>{formatSummaryDisplayValue(item, 'actual')}</span>
           </div>
-          <div className="flex flex-col border-t border-blue-50 bg-blue-50/20 -mx-4 px-5 pt-3.5 pb-3 min-h-[90px]">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-1.5 w-[76px] shrink-0"><div className="w-1 h-3 bg-blue-400 rounded-full" /><span className="text-sm font-bold text-blue-600">合計</span></div>
-              <span className={`${isAmountSummary ? 'text-[25px] sm:text-[29px]' : 'text-2xl sm:text-3xl'} font-bold text-blue-600 leading-none flex-1 whitespace-nowrap text-center`}>{formatSummaryDisplayValue(item, 'forecast')}</span>
+          <div className="flex flex-col -mx-4 px-5 pt-1 pb-2 min-h-[82px]">
+            <div className="grid grid-cols-[62px_minmax(0,1fr)] sm:grid-cols-[68px_minmax(0,1fr)] items-center min-h-[40px]">
+              <div className="flex items-center gap-1.5 shrink-0"><div className="w-1 h-3.5 bg-blue-400 rounded-full" /><span className="text-[13px] font-bold text-blue-600">合計</span></div>
+              <span className={`${isAmountSummary ? 'text-[24px] sm:text-[28px]' : 'text-2xl sm:text-3xl'} font-bold text-blue-600 leading-none whitespace-nowrap text-center`}>{formatSummaryDisplayValue(item, 'forecast')}</span>
             </div>
             {item.sourceCount ? (
               <div className="flex justify-center flex-wrap mt-2.5 text-[11px] sm:text-[12px] font-extrabold text-blue-800 gap-x-4 gap-y-1">
@@ -1151,14 +1151,14 @@ const PdfPrintMetricCard = ({ section }) => {
   return (
     <section style={{ border: '1.5px solid #dbeafe', borderRadius: '12px', padding: '4mm', background: '#fff', boxSizing: 'border-box', minHeight: '54mm', breakInside: 'avoid', pageBreakInside: 'avoid' }}>
       <div style={{ borderLeft: '4px solid #cbd5e1', paddingLeft: '3mm', fontSize: '14px', fontWeight: 950, color: '#0f172a', lineHeight: 1.1, marginBottom: '3mm' }}>{item.label}</div>
-      <div style={{ display: 'grid', gridTemplateRows: '12.5mm 20mm', borderRadius: '8px', overflow: 'hidden', border: '1px solid #e2e8f0' }}>
-        <div style={{ display: 'grid', gridTemplateColumns: '25mm minmax(0,1fr)', alignItems: 'center', padding: '0 4mm', background: '#fff', boxSizing: 'border-box' }}>
-          <div style={{ fontSize: '11px', fontWeight: 950, color: '#334155', lineHeight: 1 }}>実績</div>
+      <div style={{ display: 'grid', gridTemplateRows: '12mm 20mm', rowGap: '1mm', overflow: 'hidden' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '22mm minmax(0,1fr)', alignItems: 'center', padding: '0 2mm', background: '#fff', boxSizing: 'border-box' }}>
+          <div style={{ fontSize: '10.5px', fontWeight: 950, color: '#334155', lineHeight: 1 }}>実績</div>
           <div style={{ textAlign: 'center', fontSize: isAmountCard ? '23px' : '25px', fontWeight: 950, color: '#334155', lineHeight: 1, whiteSpace: 'nowrap' }}>{formatPrintMetricValue(item, 'actual')}</div>
         </div>
-        <div style={{ padding: '2.4mm 4mm 2mm', background: '#f8fbff', borderTop: '1px solid #dbeafe', boxSizing: 'border-box' }}>
-          <div style={{ display: 'grid', gridTemplateColumns: '25mm minmax(0,1fr)', alignItems: 'center' }}>
-            <div style={{ fontSize: '11px', fontWeight: 950, color: '#2563eb', lineHeight: 1 }}>合計</div>
+        <div style={{ padding: '1mm 2mm 1.6mm', background: '#fff', boxSizing: 'border-box' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '22mm minmax(0,1fr)', alignItems: 'center' }}>
+            <div style={{ fontSize: '10.5px', fontWeight: 950, color: '#2563eb', lineHeight: 1 }}>合計</div>
             <div style={{ textAlign: 'center', fontSize: isAmountCard ? '23px' : '25px', fontWeight: 950, color: '#2563eb', lineHeight: 1, whiteSpace: 'nowrap' }}>{formatPrintMetricValue(item, 'forecast')}</div>
           </div>
           {item.sourceCount && (
