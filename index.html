@@ -1101,9 +1101,9 @@ const buildPdfCardPages = (branchSummary, branchTotalPersonDetailedSummary) => {
 };
 
 const PdfPrintBacklogCard = ({ totalAmt }) => (
-  <div style={{ border: '1.5px solid #cbd5e1', borderRadius: '10px', padding: '3.8mm 5mm', marginBottom: '4mm', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#f8fafc', boxSizing: 'border-box' }}>
-    <div style={{ fontSize: '11px', fontWeight: 950, color: '#475569', letterSpacing: 0 }}>受注残合計（レンタル・特価見込総額）</div>
-    <div style={{ minWidth: '42mm', textAlign: 'center', fontSize: '23px', fontWeight: 950, color: '#0f172a', lineHeight: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>¥{yenK(totalAmt)}千円</div>
+  <div style={{ border: '1.5px solid #cbd5e1', borderRadius: '10px', padding: '3.8mm 5mm', marginBottom: '4mm', minHeight: '15mm', display: 'grid', gridTemplateColumns: '1fr 46mm', alignItems: 'center', background: '#f8fafc', boxSizing: 'border-box' }}>
+    <div style={{ fontSize: '11px', fontWeight: 950, color: '#475569', letterSpacing: 0, lineHeight: 1.15 }}>受注残合計（レンタル・特価見込総額）</div>
+    <div style={{ height: '10mm', textAlign: 'center', fontSize: '23px', fontWeight: 950, color: '#0f172a', lineHeight: 1, display: 'grid', placeItems: 'center', boxSizing: 'border-box' }}>¥{yenK(totalAmt)}千円</div>
   </div>
 );
 
