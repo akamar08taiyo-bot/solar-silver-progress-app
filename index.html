@@ -1178,20 +1178,34 @@ const PdfPrintMetricCard = ({ section }) => {
 
 const formatRankingPrintValue = (group, row) => group.mode === 'amount' ? `${yenK(row.amount)}千円` : `${row.count}件`;
 
+const pdfRankingBadgeStyle = (borderColor, background) => ({
+  minWidth: '18mm',
+  height: '6mm',
+  display: 'grid',
+  placeItems: 'center',
+  border: `1px solid ${borderColor}`,
+  borderRadius: '5px',
+  padding: '0 1.8mm',
+  background,
+  lineHeight: 1,
+  boxSizing: 'border-box',
+  textAlign: 'center'
+});
+
 const PdfRankingCard = ({ group }) => (
   <section style={{ border: '1.2px solid #dbeafe', borderRadius: '10px', background: '#fff', overflow: 'hidden', breakInside: 'avoid', pageBreakInside: 'avoid' }}>
     <div style={{ padding: '3.2mm 4mm', borderBottom: '1px solid #e2e8f0', background: '#f8fafc' }}>
       <div style={{ fontSize: '11px', fontWeight: 950, color: '#0f172a', marginBottom: '2mm' }}>{group.title}</div>
       <div style={{ display: 'flex', gap: '2mm', flexWrap: 'wrap', justifyContent: 'center', fontSize: '8px', fontWeight: 900, color: '#334155' }}>
-        <span style={{ minWidth: '18mm', minHeight: '6mm', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', border: '1px solid #bfdbfe', borderRadius: '5px', padding: '0.8mm 1.8mm', background: '#eff6ff', lineHeight: 1 }}>包括 {group.sourceCount?.['包括'] || 0}件</span>
-        <span style={{ minWidth: '18mm', minHeight: '6mm', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', border: '1px solid #bbf7d0', borderRadius: '5px', padding: '0.8mm 1.8mm', background: '#ecfdf5', lineHeight: 1 }}>居宅 {group.sourceCount?.['居宅'] || 0}件</span>
-        <span style={{ minWidth: '18mm', minHeight: '6mm', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', border: '1px solid #cbd5e1', borderRadius: '5px', padding: '0.8mm 1.8mm', background: '#f8fafc', lineHeight: 1 }}>連携室 {group.sourceCount?.['退院/連携室'] || 0}件</span>
+        <span style={pdfRankingBadgeStyle('#bfdbfe', '#eff6ff')}>包括 {group.sourceCount?.['包括'] || 0}件</span>
+        <span style={pdfRankingBadgeStyle('#bbf7d0', '#ecfdf5')}>居宅 {group.sourceCount?.['居宅'] || 0}件</span>
+        <span style={pdfRankingBadgeStyle('#cbd5e1', '#f8fafc')}>連携室 {group.sourceCount?.['退院/連携室'] || 0}件</span>
       </div>
     </div>
     <div>
       {group.rows.map((row, index) => (
         <div key={`${group.title}-${row.label}-${index}`} style={{ display: 'grid', gridTemplateColumns: '8mm minmax(0,1fr) 20mm', gap: '2mm', alignItems: 'center', padding: '2.2mm 4mm', borderBottom: index === group.rows.length - 1 ? 'none' : '1px solid #e2e8f0', fontSize: '8.6px', fontWeight: 900, color: '#0f172a', minHeight: '9.5mm' }}>
-          <div style={{ width: '6mm', height: '6mm', border: '1px solid #cbd5e1', borderRadius: '4px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#334155' }}>{index + 1}</div>
+          <div style={{ width: '6mm', height: '6mm', border: '1px solid #cbd5e1', borderRadius: '4px', display: 'grid', placeItems: 'center', color: '#334155', lineHeight: 1, boxSizing: 'border-box', textAlign: 'center' }}>{index + 1}</div>
           <div style={{ minWidth: 0, overflowWrap: 'anywhere', wordBreak: 'break-word', whiteSpace: 'normal', lineHeight: 1.18 }}>{row.label}</div>
           <div style={{ textAlign: 'right', color: '#1d4ed8', fontWeight: 950, whiteSpace: 'nowrap' }}>
             {formatRankingPrintValue(group, row)}
