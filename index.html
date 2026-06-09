@@ -664,7 +664,7 @@ const Field = ({ label, children }) => (
   </div>
 );
 
-const OrderRow = React.memo(({ order, onUpdate, onDelete, staffName, showStaffName }) => {
+const OrderRow = React.memo(({ order, onUpdate, onDelete, salespersons = [] }) => {
   const canMarkApplying = APPLICATION_MARK_CATEGORIES.includes(order.category);
   const isOtherSalesCategory = OTHER_SALES_CATS.includes(order.category);
   const changeBilling = async (billingType) => {
@@ -680,7 +680,11 @@ const OrderRow = React.memo(({ order, onUpdate, onDelete, staffName, showStaffNa
       <td className="py-1 px-2 w-[20%]">
         <div className="flex items-center gap-1.5 w-full">
           <div className="flex flex-col gap-0.5 shrink-0">
-            {showStaffName && staffName && <span className="text-[10px] font-bold text-white bg-slate-500 px-1.5 py-0.5 rounded-sm text-center">{staffName}</span>}
+            {salespersons.length > 0 && (
+              <select value={Number(order.salespersonId || '')} onChange={(e) => onUpdate(order.id, 'salespersonId', Number(e.target.value))} className="max-w-[58px] text-[9px] font-bold text-slate-700 bg-slate-50 border border-slate-200 rounded px-1 py-0.5 appearance-none text-center shadow-sm">
+                {salespersons.map((staff) => <option key={staff.id} value={staff.id}>{staff.name}</option>)}
+              </select>
+            )}
             <select value={order.category} onChange={(e) => onUpdate(order.id, 'category', e.target.value)} className="text-[9px] font-bold text-blue-600 bg-blue-50 border border-blue-100 rounded px-1 py-0.5 appearance-none text-center shadow-sm">
               {allCategories.map((c) => <option key={c}>{c}</option>)}
             </select>
@@ -725,7 +729,6 @@ const OrderTable = React.memo(({ items, onUpdate, onDelete, salespersons = [], s
     }
     return map;
   }, [items]);
-  const staffMap = useMemo(() => Object.fromEntries(salespersons.map((s) => [Number(s.id), s.name])), [salespersons]);
 
   if (!items.length && !onAddCategory) return <div className="p-8 text-center bg-white border-2 border-dashed border-slate-200 rounded-2xl text-slate-500 font-bold text-lg">登録データはありません</div>;
 
@@ -742,7 +745,7 @@ const OrderTable = React.memo(({ items, onUpdate, onDelete, salespersons = [], s
             </div>
             <div className="overflow-x-auto">
               <table className="w-full text-left table-fixed min-w-[820px]">
-                <tbody className="divide-y divide-slate-100">{list.map((o) => <OrderRow key={o.id} order={o} onUpdate={onUpdate} onDelete={onDelete} staffName={showStaffName ? staffMap[Number(o.salespersonId)] : null} showStaffName={showStaffName} />)}</tbody>
+                <tbody className="divide-y divide-slate-100">{list.map((o) => <OrderRow key={o.id} order={o} onUpdate={onUpdate} onDelete={onDelete} salespersons={salespersons} />)}</tbody>
                 {onAddCategory && (
                   <tfoot>
                     <tr>
@@ -1153,10 +1156,10 @@ const PdfPrintMetricCard = ({ section }) => {
           <div style={{ fontSize: '11px', fontWeight: 950, color: '#334155' }}>実績</div>
           <div style={{ textAlign: 'center', fontSize: isAmountCard ? '24px' : '26px', fontWeight: 950, color: '#334155', lineHeight: 1 }}>{formatPrintMetricValue(item, 'actual')}</div>
         </div>
-        <div style={{ padding: '2.2mm 4mm', background: '#f8fbff', borderTop: '1px solid #e2e8f0' }}>
-          <div style={{ display: 'grid', gridTemplateColumns: '25mm 1fr', alignItems: 'center' }}>
-            <div style={{ fontSize: '11px', fontWeight: 950, color: '#2563eb' }}>合計</div>
-            <div style={{ textAlign: 'center', fontSize: isAmountCard ? '24px' : '26px', fontWeight: 950, color: '#2563eb', lineHeight: 1 }}>{formatPrintMetricValue(item, 'forecast')}</div>
+        <div style={{ padding: '2.2mm 4mm', background: '#f8fbff', borderTop: '1px solid #dbeafe' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '22mm minmax(0,1fr)', alignItems: 'center', columnGap: '2mm' }}>
+            <div style={{ justifySelf: 'start', fontSize: '10px', fontWeight: 950, color: '#1d4ed8', background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: '6px', padding: '1.2mm 2.4mm', lineHeight: 1 }}>合計</div>
+            <div style={{ textAlign: 'center', fontSize: isAmountCard ? '22px' : '24px', fontWeight: 950, color: '#2563eb', lineHeight: 1, whiteSpace: 'nowrap' }}>{formatPrintMetricValue(item, 'forecast')}</div>
           </div>
           {item.sourceCount && (
             <div style={{ marginTop: '2.2mm', display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: '1.2mm 3mm', fontSize: '9.3px', fontWeight: 950, color: '#1e40af', lineHeight: 1.15 }}>
@@ -1180,9 +1183,9 @@ const PdfRankingCard = ({ group }) => (
     <div style={{ padding: '3.2mm 4mm', borderBottom: '1px solid #e2e8f0', background: '#f8fafc' }}>
       <div style={{ fontSize: '11px', fontWeight: 950, color: '#0f172a', marginBottom: '2mm' }}>{group.title}</div>
       <div style={{ display: 'flex', gap: '2mm', flexWrap: 'wrap', justifyContent: 'center', fontSize: '8px', fontWeight: 900, color: '#334155' }}>
-        <span style={{ border: '1px solid #bfdbfe', borderRadius: '5px', padding: '1mm 1.8mm', background: '#eff6ff' }}>包括 {group.sourceCount?.['包括'] || 0}件</span>
-        <span style={{ border: '1px solid #bbf7d0', borderRadius: '5px', padding: '1mm 1.8mm', background: '#ecfdf5' }}>居宅 {group.sourceCount?.['居宅'] || 0}件</span>
-        <span style={{ border: '1px solid #cbd5e1', borderRadius: '5px', padding: '1mm 1.8mm', background: '#f8fafc' }}>連携室 {group.sourceCount?.['退院/連携室'] || 0}件</span>
+        <span style={{ minWidth: '18mm', minHeight: '6mm', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', border: '1px solid #bfdbfe', borderRadius: '5px', padding: '0.8mm 1.8mm', background: '#eff6ff', lineHeight: 1 }}>包括 {group.sourceCount?.['包括'] || 0}件</span>
+        <span style={{ minWidth: '18mm', minHeight: '6mm', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', border: '1px solid #bbf7d0', borderRadius: '5px', padding: '0.8mm 1.8mm', background: '#ecfdf5', lineHeight: 1 }}>居宅 {group.sourceCount?.['居宅'] || 0}件</span>
+        <span style={{ minWidth: '18mm', minHeight: '6mm', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', border: '1px solid #cbd5e1', borderRadius: '5px', padding: '0.8mm 1.8mm', background: '#f8fafc', lineHeight: 1 }}>連携室 {group.sourceCount?.['退院/連携室'] || 0}件</span>
       </div>
     </div>
     <div>
@@ -2005,10 +2008,10 @@ const RankingGroupGrid = ({ groups, compact = false }) => (
       <div key={group.title} className="border border-slate-100 rounded-xl overflow-hidden bg-slate-50/50">
         <div className="px-4 py-3 bg-white border-b border-slate-100 flex flex-col gap-2">
           <div className="font-bold text-slate-800 text-sm">{group.title}</div>
-          <div className="flex flex-wrap gap-2 text-[11px] font-extrabold text-slate-700">
-            <span className="px-2 py-1 rounded-md bg-blue-50 border border-blue-100">包括 {group.sourceCount?.['包括'] || 0}件</span>
-            <span className="px-2 py-1 rounded-md bg-emerald-50 border border-emerald-100">居宅 {group.sourceCount?.['居宅'] || 0}件</span>
-            <span className="px-2 py-1 rounded-md bg-slate-50 border border-slate-200">連携室 {group.sourceCount?.['退院/連携室'] || 0}件</span>
+          <div className="flex flex-wrap justify-center gap-2 text-[11px] font-extrabold text-slate-700">
+            <span className="inline-flex items-center justify-center min-w-[68px] h-7 px-2 rounded-md bg-blue-50 border border-blue-100 leading-none">包括 {group.sourceCount?.['包括'] || 0}件</span>
+            <span className="inline-flex items-center justify-center min-w-[68px] h-7 px-2 rounded-md bg-emerald-50 border border-emerald-100 leading-none">居宅 {group.sourceCount?.['居宅'] || 0}件</span>
+            <span className="inline-flex items-center justify-center min-w-[68px] h-7 px-2 rounded-md bg-slate-50 border border-slate-200 leading-none">連携室 {group.sourceCount?.['退院/連携室'] || 0}件</span>
           </div>
         </div>
         <div className="divide-y divide-slate-100">
