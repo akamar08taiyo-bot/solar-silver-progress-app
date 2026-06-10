@@ -396,7 +396,7 @@ const statRows = (summary) => [
   { key: 'renovation', label: '住宅改修', actual: `${summary.renovation.doneCnt}件(${yenK(summary.renovation.doneAmt)}千円)`, forecast: `${summary.renovation.forecastCnt}件(${yenK(summary.renovation.forecastAmt)}千円)`, sourceCount: summary.renovation.sourceCount },
   { key: 'equipment', label: '特定福祉用具', actual: `${summary.equipment.doneCnt}件(${yenK(summary.equipment.doneAmt)}千円)`, forecast: `${summary.equipment.forecastCnt}件(${yenK(summary.equipment.forecastAmt)}千円)`, sourceCount: summary.equipment.sourceCount },
   { key: 'otherSales', label: 'その他販売', actual: yenK(summary.otherSales.doneAmt), forecast: yenK(summary.otherSales.forecastAmt), unit: '千円' }
-];
+].map((row) => row.key === 'otherSales' ? { ...row, categoryAmounts: summary.otherSales.categoryAmounts || {} } : row);
 
 const getStaffSourceRows = (staffBreakdown, key) => (staffBreakdown || [])
   .filter((staff) => staff?.id && staff?.current?.[key])
@@ -434,6 +434,10 @@ const formatOtherSalesBreakdown = (categoryAmounts = {}) => OTHER_SALES_CATS
   .filter((item) => item.amount > 0)
   .map((item) => `${item.label}:${yenK(item.amount)}千円`)
   .join(' ');
+
+const getOtherSalesBreakdownItems = (categoryAmounts = {}) => OTHER_SALES_CATS
+  .map((category) => ({ label: OTHER_SALES_LABELS[category] || category, amount: Number(categoryAmounts[category] || 0) }))
+  .filter((item) => item.amount > 0);
 
 const formatSummaryDisplayValue = (item, kind) => {
   const value = item[kind];
@@ -1141,14 +1145,32 @@ const formatPrintStaffMainLine = (row) => {
 
 const formatPrintStaffSourceLine = (row) => `包括:${row.sourceCount['包括'] || 0}件、居宅:${row.sourceCount['居宅'] || 0}件、連携室:${row.sourceCount['退院/連携室'] || 0}件`;
 
+const PdfOtherSalesBreakdownLine = ({ categoryAmounts, fallbackAmount = 0, align = 'flex-end' }) => {
+  const items = getOtherSalesBreakdownItems(categoryAmounts);
+  const displayItems = items.length ? items : [{ label: '合計', amount: Number(fallbackAmount || 0) }];
+  return (
+    <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: align, alignItems: 'center', gap: '1mm 2.2mm', color: '#1e40af', fontSize: '9px', fontWeight: 950, lineHeight: 1.15, textAlign: align === 'center' ? 'center' : 'right' }}>
+      {displayItems.map((entry) => (
+        <span key={entry.label} style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', whiteSpace: 'nowrap' }}>{entry.label}:{yenK(entry.amount)}千円</span>
+      ))}
+    </div>
+  );
+};
+
 const PdfPrintStaffRows = ({ rows }) => (
   <div style={{ borderTop: '1px solid #cbd5e1', marginTop: '2.6mm', paddingTop: '2.2mm' }}>
     {rows.map((row) => (
       <div key={row.id} style={{ display: 'grid', gridTemplateColumns: '20mm minmax(0,1fr)', columnGap: '3mm', fontSize: '9.4px', lineHeight: 1.22, fontWeight: 950, color: '#0f172a', marginBottom: '1.55mm', breakInside: 'avoid', pageBreakInside: 'avoid' }}>
         <div style={{ overflowWrap: 'anywhere' }}>{row.name}</div>
         <div style={{ textAlign: 'right', minWidth: 0, overflowWrap: 'anywhere', wordBreak: 'keep-all' }}>
-          <div>{formatPrintStaffMainLine(row)}</div>
-          {row.key !== 'otherSales' && <div style={{ marginTop: '0.6mm' }}>{formatPrintStaffSourceLine(row)}</div>}
+          {row.key === 'otherSales' ? (
+            <PdfOtherSalesBreakdownLine categoryAmounts={row.categoryAmounts} fallbackAmount={row.forecastAmt} />
+          ) : (
+            <React.Fragment>
+              <div>{formatPrintStaffMainLine(row)}</div>
+              <div style={{ marginTop: '0.6mm' }}>{formatPrintStaffSourceLine(row)}</div>
+            </React.Fragment>
+          )}
         </div>
       </div>
     ))}
@@ -1176,6 +1198,11 @@ const PdfPrintMetricCard = ({ section }) => {
               <span>包括:{item.sourceCount['包括'] || 0}件</span>
               <span>居宅:{item.sourceCount['居宅'] || 0}件</span>
               <span>連携室:{item.sourceCount['退院/連携室'] || 0}件</span>
+            </div>
+          )}
+          {item.key === 'otherSales' && (
+            <div style={{ marginTop: '2.2mm' }}>
+              <PdfOtherSalesBreakdownLine categoryAmounts={item.categoryAmounts} fallbackAmount={Number(item.forecast || 0) * 1000} align="center" />
             </div>
           )}
         </div>
