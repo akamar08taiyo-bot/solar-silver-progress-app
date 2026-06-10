@@ -509,15 +509,17 @@ const BranchSummaryCards = ({ summary, staffBreakdown = [], openMap = {}, onTogg
               </div>
             ) : <div className="h-[24px] invisible" />}
             {hasBreakdown && (
-              <div className="h-[42px] flex items-center">
-                <button type="button" onClick={() => onToggle(item.key)} className="w-full h-[34px] rounded-lg border border-blue-100 bg-white/80 px-3 text-xs font-bold text-blue-700 flex items-center justify-between hover:bg-blue-50 print:hidden">
-                  <span>営業員別内訳</span>
-                  <ArrowDown size={14} className={`transition-transform ${isOpen ? 'rotate-180' : ''}`} />
-                </button>
-                <div className={isOpen ? 'block' : 'hidden print:hidden'}>
+              <>
+                <div className="h-[42px] flex items-center">
+                  <button type="button" onClick={() => onToggle(item.key)} className="w-full h-[34px] rounded-lg border border-blue-100 bg-white/80 px-3 text-xs font-bold text-blue-700 flex items-center justify-between hover:bg-blue-50 print:hidden">
+                    <span>営業員別内訳</span>
+                    <ArrowDown size={14} className={`transition-transform ${isOpen ? 'rotate-180' : ''}`} />
+                  </button>
+                </div>
+                <div className={isOpen ? 'block print:hidden' : 'hidden print:hidden'}>
                   <StaffSourceBreakdownPanel rows={staffRows} />
                 </div>
-              </div>
+              </>
             )}
           </div>
         </div>
