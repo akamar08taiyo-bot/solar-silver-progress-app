@@ -489,27 +489,28 @@ const BranchSummaryCards = ({ summary, staffBreakdown = [], openMap = {}, onTogg
       const staffRows = getStaffSourceRows(staffBreakdown, item.key);
       const isOpen = Boolean(openMap[item.key]);
       const isAmountSummary = item.key === 'renovation' || item.key === 'equipment' || item.key === 'otherSales';
+      const hasBreakdown = Boolean(item.sourceCount) || item.key === 'otherSales';
       return (
-      <Card key={item.label} className="p-3 sm:p-4 border-slate-200 bg-white shadow-md flex flex-col min-h-[168px] justify-between group">
-        <div className="text-xs sm:text-sm font-bold text-slate-700 uppercase tracking-widest leading-none border-l-4 border-slate-300 pl-3 mb-2.5 whitespace-nowrap">{item.label}</div>
-        <div className="flex flex-col gap-2 flex-1 justify-center min-w-0">
-          <div className="flex items-center justify-between h-[42px] px-1">
+      <Card key={item.label} className="p-3 sm:p-4 border-slate-200 bg-white shadow-md flex flex-col min-h-[190px] group">
+        <div className="h-6 text-xs sm:text-sm font-bold text-slate-700 uppercase tracking-widest leading-none border-l-4 border-slate-300 pl-3 mb-2.5 whitespace-nowrap flex items-center">{item.label}</div>
+        <div className="flex flex-col flex-1 min-w-0">
+          <div className="flex items-center justify-between h-[42px] px-1 shrink-0">
             <div className="flex items-center gap-1.5 w-[76px] shrink-0"><div className="w-1 h-3.5 bg-slate-200 rounded-full" /><span className="text-sm font-bold text-slate-700">実績</span></div>
             <span className={`${isAmountSummary ? 'text-[25px] sm:text-[29px]' : 'text-2xl sm:text-3xl'} font-bold text-slate-700 leading-none flex-1 whitespace-nowrap text-center`}>{formatSummaryDisplayValue(item, 'actual')}</span>
           </div>
-          <div className="flex flex-col border-t border-blue-50 bg-blue-50/20 -mx-4 px-5 pt-3.5 pb-3 min-h-[90px]">
-            <div className="flex items-center justify-between">
+          <div className="flex flex-col border-t border-blue-50 bg-blue-50/20 -mx-4 px-5 pt-2.5 pb-3 min-h-[112px]">
+            <div className="flex items-center justify-between h-[42px] shrink-0">
               <div className="flex items-center gap-1.5 w-[76px] shrink-0"><div className="w-1 h-3 bg-blue-400 rounded-full" /><span className="text-sm font-bold text-blue-600">合計</span></div>
               <span className={`${isAmountSummary ? 'text-[25px] sm:text-[29px]' : 'text-2xl sm:text-3xl'} font-bold text-blue-600 leading-none flex-1 whitespace-nowrap text-center`}>{formatSummaryDisplayValue(item, 'forecast')}</span>
             </div>
             {item.sourceCount ? (
-              <div className="flex justify-center flex-wrap mt-2.5 text-[11px] sm:text-[12px] font-extrabold text-blue-800 gap-x-4 gap-y-1">
-                <span>包括:{item.sourceCount['包括']}</span><span>居宅:{item.sourceCount['居宅']}</span><span>連携室:{item.sourceCount['退院/連携室']}</span>
+              <div className="h-[24px] flex items-center justify-center flex-wrap text-[11px] sm:text-[12px] font-extrabold text-blue-800 gap-x-4 gap-y-1">
+                <span className="inline-flex items-center justify-center leading-none">包括:{item.sourceCount['包括']}</span><span className="inline-flex items-center justify-center leading-none">居宅:{item.sourceCount['居宅']}</span><span className="inline-flex items-center justify-center leading-none">連携室:{item.sourceCount['退院/連携室']}</span>
               </div>
-            ) : <div className="mt-2 h-5 invisible" />}
-            {item.sourceCount && (
-              <div className="mt-3">
-                <button type="button" onClick={() => onToggle(item.key)} className="w-full rounded-lg border border-blue-100 bg-white/80 px-3 py-2 text-xs font-bold text-blue-700 flex items-center justify-between hover:bg-blue-50 print:hidden">
+            ) : <div className="h-[24px] invisible" />}
+            {hasBreakdown && (
+              <div className="h-[42px] flex items-center">
+                <button type="button" onClick={() => onToggle(item.key)} className="w-full h-[34px] rounded-lg border border-blue-100 bg-white/80 px-3 text-xs font-bold text-blue-700 flex items-center justify-between hover:bg-blue-50 print:hidden">
                   <span>営業員別内訳</span>
                   <ArrowDown size={14} className={`transition-transform ${isOpen ? 'rotate-180' : ''}`} />
                 </button>
@@ -2010,13 +2011,13 @@ const CategoryFilter = ({ items, selected, onSelect }) => <div className="flex f
 const ListToolbar = ({ currentYear, currentMonthNum, currentMonth, setCurrentMonth }) => <div className="flex items-center justify-between bg-white p-3 rounded-xl border border-slate-100 shadow-sm"><div className="flex items-center gap-4"><div className="bg-blue-500 text-white px-4 py-1.5 rounded-lg font-bold text-sm shadow-sm">表示中</div><h2 className="text-xl font-bold text-slate-800">{currentYear}年{currentMonthNum}月 <span className="text-slate-600 font-bold ml-1 text-sm">の受注残</span></h2></div><div className="flex items-center gap-2"><button onClick={() => setCurrentMonth(getOffsetMonth(currentMonth, -1))} className="p-2 hover:bg-slate-50 rounded-lg text-slate-600 flex items-center gap-1 font-bold text-sm"><RotateCcw size={16} className="-scale-x-100" />前月</button><button onClick={() => { const now = new Date(); setCurrentMonth(`${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`); }} className="px-3 py-2 bg-slate-50 hover:bg-slate-100 rounded-lg text-slate-700 font-bold text-xs">今月</button><button onClick={() => setCurrentMonth(getOffsetMonth(currentMonth, 1))} className="p-2 hover:bg-slate-50 rounded-lg text-slate-600 flex items-center gap-1 font-bold text-sm">次月 <RotateCcw size={16} className="rotate-180" /></button></div></div>;
 
 const SourceCountSummary = ({ sourceCount }) => (
-  <div className="flex flex-wrap gap-2">
+  <div className="flex flex-wrap justify-center gap-2">
     {[
       ['包括', sourceCount?.['包括'] || 0],
       ['居宅', sourceCount?.['居宅'] || 0],
       ['連携室', sourceCount?.['退院/連携室'] || 0]
     ].map(([label, count]) => (
-      <span key={label} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-50 border border-slate-200 text-xs font-extrabold text-slate-800">
+      <span key={label} className="inline-flex items-center justify-center gap-1.5 min-w-[74px] h-8 px-3 rounded-lg bg-slate-50 border border-slate-200 text-xs font-extrabold text-slate-800 leading-none">
         {label}<span className="text-blue-600">{count}件</span>
       </span>
     ))}
