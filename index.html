@@ -1374,6 +1374,7 @@ const MainApp = ({ branchSetting }) => {
   const [loginHistory, setLoginHistory] = useState([]);
   const [entryStaffId, setEntryStaffId] = useState(1);
   const [listStaffId, setListStaffId] = useState('all');
+  const [listSortMode, setListSortMode] = useState('category');
   const [trendStaffId, setTrendStaffId] = useState('overall');
   const [rankingPeriod, setRankingPeriod] = useState('fiscalYear');
   const [rankingStaffId, setRankingStaffId] = useState('all');
@@ -1581,13 +1582,30 @@ const MainApp = ({ branchSetting }) => {
   const currentOrders = useMemo(() => orders.filter((o) => o.targetMonth === currentMonth), [orders, currentMonth]);
   const currentAccountingOrders = useMemo(() => orders.filter((o) => getOrderAccountingMonth(o) === currentMonth), [orders, currentMonth]);
   const entryStaffOrders = useMemo(() => activeTab === 'new_entry' ? currentOrders.filter((o) => Number(o.salespersonId) === Number(entryStaffId)) : [], [activeTab, currentOrders, entryStaffId]);
+  const staffSortIndex = useMemo(() => Object.fromEntries(salespersons.map((staff, index) => [Number(staff.id), index])), [salespersons]);
   const listOrders = useMemo(() => {
     if (activeTab !== 'list') return [];
     let filtered = currentOrders;
     if (listStaffId !== 'all') filtered = filtered.filter((o) => Number(o.salespersonId) === Number(listStaffId));
     if (listSourceFilter !== 'すべて') filtered = filtered.filter((o) => o.source === listSourceFilter);
-    return filtered;
-  }, [activeTab, currentOrders, listSourceFilter, listStaffId]);
+    const categoryIndex = (order) => {
+      const index = allCategories.indexOf(order.category);
+      return index === -1 ? 9999 : index;
+    };
+    const createdValue = (order) => String(order.createdAt || order.id || '');
+    return [...filtered].sort((a, b) => {
+      if (listSortMode === 'staff') {
+        const staffA = staffSortIndex[Number(a.salespersonId)] ?? 9999;
+        const staffB = staffSortIndex[Number(b.salespersonId)] ?? 9999;
+        if (staffA !== staffB) return staffA - staffB;
+      }
+      if (listSortMode === 'newest') return createdValue(b).localeCompare(createdValue(a));
+      const catA = categoryIndex(a);
+      const catB = categoryIndex(b);
+      if (catA !== catB) return catA - catB;
+      return createdValue(a).localeCompare(createdValue(b));
+    });
+  }, [activeTab, currentOrders, listSourceFilter, listSortMode, listStaffId, staffSortIndex]);
 
   const updateStaffField = useCallback(async (id, field, value) => updateDoc(doc(db, ...basePath, 'staff', String(id)), { [field]: value }), [basePath]);
   const handleToggleStaffUpdateConfirm = useCallback(async (id, checked) => {
@@ -1967,7 +1985,7 @@ const MainApp = ({ branchSetting }) => {
         </section>}
         {activeTab === 'summary' && <section className="space-y-6"><div className="flex justify-between items-end"><SectionHeader icon={BarChart3} title={`${BRANCH_NAME} 目標進捗`} subtitle="Monthly Target" /><AlertNote /></div><RankingInsightsPanel insights={rankingInsights} salespersons={salespersons} period={rankingPeriod} setPeriod={setRankingPeriod} staffId={rankingStaffId} setStaffId={setRankingStaffId} /><div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">{personDetailedSummary.map((data) => <ProgressCard key={data.id} data={data} />)}</div></section>}
         {activeTab === 'trend' && <section className="space-y-6"><div className="flex justify-between items-end"><SectionHeader icon={LineChart} title="今年年度（4月〜3月）の見込み推移" subtitle="Fiscal Year Trend" /></div><RankingInsightsPanel insights={rankingInsights} compact salespersons={salespersons} period={rankingPeriod} setPeriod={setRankingPeriod} staffId={rankingStaffId} setStaffId={setRankingStaffId} /><div className="flex bg-white p-2.5 rounded-2xl border border-slate-200 shadow-md gap-3 overflow-x-auto"><button onClick={() => setTrendStaffId('overall')} className={`px-8 py-3 rounded-xl font-bold text-lg whitespace-nowrap ${trendStaffId === 'overall' ? 'bg-slate-700 text-white shadow-lg' : 'text-slate-600 hover:bg-slate-50'}`}>{BRANCH_NAME} 全体</button>{salespersons.map((staff) => <button key={staff.id} onClick={() => setTrendStaffId(staff.id)} className={`px-8 py-3 rounded-xl font-bold text-lg whitespace-nowrap ${trendStaffId === staff.id ? 'bg-blue-500 text-white shadow-lg' : 'text-slate-600 hover:bg-slate-50'}`}>{staff.name}</button>)}</div><div className="grid grid-cols-1 md:grid-cols-2 gap-6"><StackedBarChart data={trendData.series.rentalNew} previousData={trendData.previousSeries.rentalNew} labels={trendData.months} currentMonth={currentMonth} title="レンタル新規 見込み(件)" unit="件" yAxisMax={trendStaffId === 'overall' ? chartConfig.overall.rentalNew : chartConfig.personal.rentalNew} /><StackedBarChart data={trendData.series.bed} previousData={trendData.previousSeries.bed} labels={trendData.months} currentMonth={currentMonth} title="特価台数 見込み(台)" unit="台" yAxisMax={trendStaffId === 'overall' ? chartConfig.overall.bed : chartConfig.personal.bed} /><StackedBarChart data={trendData.series.renovation} previousData={trendData.previousSeries.renovation} labels={trendData.months} currentMonth={currentMonth} title="住宅改修 見込み(件)" unit="件" /><StackedBarChart data={trendData.series.equipment} previousData={trendData.previousSeries.equipment} labels={trendData.months} currentMonth={currentMonth} title="特定福祉用具販売 見込み(件)" unit="件" /></div></section>}
-        {activeTab === 'list' && <section className="space-y-4"><ListToolbar currentYear={currentYear} currentMonthNum={currentMonthNum} currentMonth={currentMonth} setCurrentMonth={setCurrentMonth} /><div className="flex flex-col md:flex-row gap-4 items-center justify-between"><StaffFilter salespersons={salespersons} value={listStaffId} setValue={(v) => { setListStaffId(v); setSelectedCategoryFilter('すべて'); }} overallLabel={`${BRANCH_NAME} 全体`} /><div className="flex flex-col sm:flex-row gap-2 w-full md:w-auto"><button onClick={handleMoveCheckedToPrevious} className="w-full md:w-auto text-slate-700 bg-white border border-slate-200 px-6 py-2.5 rounded-xl font-bold text-sm flex items-center justify-center gap-2 shadow-sm hover:bg-slate-50"><RotateCcw size={18} className="-scale-x-100" />前月へ戻す</button><button onClick={handleCarryOverChecked} className="w-full md:w-auto text-white bg-blue-500 px-6 py-2.5 rounded-xl font-bold text-sm flex items-center justify-center gap-2 shadow-md hover:bg-blue-600"><RotateCcw size={18} />次月へ移行</button></div></div><BranchSourceFilter currentFilter={listSourceFilter} onChange={setListSourceFilter} prefix="list" /><CategoryFilter items={listOrders} selected={selectedCategoryFilter} onSelect={setSelectedCategoryFilter} /><OrderTable items={listOrders} onUpdate={updateOrderField} onDelete={deleteOrder} salespersons={salespersons} showStaffName={listStaffId === 'all'} selectedCategory={selectedCategoryFilter} onAddCategory={handleAddListRow} /></section>}
+        {activeTab === 'list' && <section className="space-y-4"><ListToolbar currentYear={currentYear} currentMonthNum={currentMonthNum} currentMonth={currentMonth} setCurrentMonth={setCurrentMonth} /><div className="flex flex-col md:flex-row gap-4 items-center justify-between"><div className="flex flex-col lg:flex-row gap-3 w-full md:w-auto"><StaffFilter salespersons={salespersons} value={listStaffId} setValue={(v) => { setListStaffId(v); setSelectedCategoryFilter('すべて'); }} overallLabel={`${BRANCH_NAME} 全体`} /><ListSortControl value={listSortMode} setValue={setListSortMode} /></div><div className="flex flex-col sm:flex-row gap-2 w-full md:w-auto"><button onClick={handleMoveCheckedToPrevious} className="w-full md:w-auto text-slate-700 bg-white border border-slate-200 px-6 py-2.5 rounded-xl font-bold text-sm flex items-center justify-center gap-2 shadow-sm hover:bg-slate-50"><RotateCcw size={18} className="-scale-x-100" />前月へ戻す</button><button onClick={handleCarryOverChecked} className="w-full md:w-auto text-white bg-blue-500 px-6 py-2.5 rounded-xl font-bold text-sm flex items-center justify-center gap-2 shadow-md hover:bg-blue-600"><RotateCcw size={18} />次月へ移行</button></div></div><BranchSourceFilter currentFilter={listSourceFilter} onChange={setListSourceFilter} prefix="list" /><CategoryFilter items={listOrders} selected={selectedCategoryFilter} onSelect={setSelectedCategoryFilter} /><OrderTable items={listOrders} onUpdate={updateOrderField} onDelete={deleteOrder} salespersons={salespersons} showStaffName={listStaffId === 'all'} selectedCategory={selectedCategoryFilter} onAddCategory={handleAddListRow} /></section>}
         {activeTab === 'compliance' && <Usage />}
         {activeTab === 'master' && <section className="space-y-6"><SectionHeader icon={Settings} title={`${BRANCH_NAME} マスタ設定`} subtitle="Master Settings" /><MasterSetupStatusCard isConfirmed={isMasterConfirmed} staffCount={salespersons.length} onConfirm={handleConfirmMasterSettings} /><div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">{salespersons.filter((s) => s?.id).map((s, idx) => <StaffMemberItem key={s.id} staff={s} isFirst={idx === 0} isLast={idx === salespersons.length - 1} onMove={handleMoveStaff} onUpdate={updateStaffField} onDelete={async (id) => { await deleteDoc(doc(db, ...basePath, 'staff', String(id))); showMessage('スタッフを削除しました'); }} />)}<AddStaffCard value={newStaffName} setValue={setNewStaffName} onAdd={async () => { if (!newStaffName) return; const newId = Date.now(); await setDoc(doc(db, ...basePath, 'staff', String(newId)), { id: newId, name: newStaffName, budgetRenovation: 0, targetRenovationCnt: 0, budgetEquipment: 0, targetEquipmentCnt: 0, targetRentalNew: 0, targetBedNew: 0, orderIndex: salespersons.length }); setNewStaffName(''); showMessage('追加しました'); }} /></div><ChartConfigCard chartConfig={chartConfig} onSave={handleUpdateChartConfig} /><DataPortabilityCard onExport={handleExportData} onImportClick={() => importFileRef.current?.click()} importRef={importFileRef} onImport={handleImportData} loginHistory={loginHistory} /></section>}
       </main>
@@ -2021,6 +2039,21 @@ const UpdateConfirmModal = ({ salespersons = [], onClose, onConfirm }) => {
 };
 
 const StaffFilter = ({ salespersons, value, setValue, overallLabel }) => <div className="flex bg-white p-2 rounded-xl border border-slate-100 shadow-sm gap-2 overflow-x-auto w-full md:w-auto"><button onClick={() => setValue('all')} className={`px-6 py-2 rounded-lg font-bold text-sm whitespace-nowrap ${value === 'all' ? 'bg-slate-700 text-white shadow' : 'text-slate-700 hover:bg-slate-50'}`}>{overallLabel}</button>{salespersons.map((staff) => <button key={staff.id} onClick={() => setValue(staff.id)} className={`px-6 py-2 rounded-lg font-bold text-sm whitespace-nowrap ${value === staff.id ? 'bg-blue-500 text-white shadow' : 'text-slate-600 hover:bg-slate-50'}`}>{staff.name}</button>)}</div>;
+
+const ListSortControl = ({ value, setValue }) => (
+  <div className="flex bg-white p-2 rounded-xl border border-slate-100 shadow-sm gap-2 overflow-x-auto w-full md:w-auto">
+    <span className="px-3 py-2 text-xs font-extrabold text-slate-500 whitespace-nowrap">並び替え</span>
+    {[
+      ['category', 'カテゴリ順'],
+      ['staff', '担当者順'],
+      ['newest', '新しい順']
+    ].map(([mode, label]) => (
+      <button key={mode} onClick={() => setValue(mode)} className={`px-5 py-2 rounded-lg font-bold text-sm whitespace-nowrap ${value === mode ? 'bg-blue-500 text-white shadow' : 'text-slate-600 hover:bg-slate-50'}`}>
+        {label}
+      </button>
+    ))}
+  </div>
+);
 
 const MasterSetupStatusCard = ({ isConfirmed, staffCount, onConfirm }) => (
   <Card className={`p-5 border ${isConfirmed ? 'border-emerald-200 bg-emerald-50/50' : 'border-blue-200 bg-blue-50/50'} shadow-sm`}>
