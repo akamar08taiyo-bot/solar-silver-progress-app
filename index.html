@@ -1593,11 +1593,23 @@ const MainApp = ({ branchSetting }) => {
       return index === -1 ? 9999 : index;
     };
     const createdValue = (order) => String(order.createdAt || order.id || '');
+    const sourceIndex = (order) => {
+      const index = sources.indexOf(order.source || 'その他');
+      return index === -1 ? 9999 : index;
+    };
     return [...filtered].sort((a, b) => {
       if (listSortMode === 'staff') {
         const staffA = staffSortIndex[Number(a.salespersonId)] ?? 9999;
         const staffB = staffSortIndex[Number(b.salespersonId)] ?? 9999;
         if (staffA !== staffB) return staffA - staffB;
+      }
+      if (listSortMode === 'carryLast' && Boolean(a.isCarryOver) !== Boolean(b.isCarryOver)) return Number(Boolean(a.isCarryOver)) - Number(Boolean(b.isCarryOver));
+      if (listSortMode === 'doneFirst' && isCompletedStatus(a.status) !== isCompletedStatus(b.status)) return Number(isCompletedStatus(b.status)) - Number(isCompletedStatus(a.status));
+      if (listSortMode === 'doneLast' && isCompletedStatus(a.status) !== isCompletedStatus(b.status)) return Number(isCompletedStatus(a.status)) - Number(isCompletedStatus(b.status));
+      if (listSortMode === 'source') {
+        const sourceA = sourceIndex(a);
+        const sourceB = sourceIndex(b);
+        if (sourceA !== sourceB) return sourceA - sourceB;
       }
       if (listSortMode === 'newest') return createdValue(b).localeCompare(createdValue(a));
       const catA = categoryIndex(a);
@@ -2046,6 +2058,10 @@ const ListSortControl = ({ value, setValue }) => (
     {[
       ['category', 'カテゴリ順'],
       ['staff', '担当者順'],
+      ['source', '包括・居宅順'],
+      ['carryLast', '次月を後へ'],
+      ['doneFirst', '反映済み上'],
+      ['doneLast', '反映済み下'],
       ['newest', '新しい順']
     ].map(([mode, label]) => (
       <button key={mode} onClick={() => setValue(mode)} className={`px-5 py-2 rounded-lg font-bold text-sm whitespace-nowrap ${value === mode ? 'bg-blue-500 text-white shadow' : 'text-slate-600 hover:bg-slate-50'}`}>
