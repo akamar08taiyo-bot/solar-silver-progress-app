@@ -1594,7 +1594,7 @@ const MainApp = ({ branchSetting }) => {
     };
     const createdValue = (order) => String(order.createdAt || order.id || '');
     const sourceIndex = (order) => {
-      const index = sources.indexOf(order.source || 'その他');
+      const index = sources.indexOf(order.source || sources[sources.length - 1]);
       return index === -1 ? 9999 : index;
     };
     return [...filtered].sort((a, b) => {
