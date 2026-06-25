@@ -556,15 +556,21 @@ const BranchSummaryCards = ({ summary, staffBreakdown = [], openMap = {}, onTogg
   </div>
 );
 
-const BacklogTotalCard = ({ totalAmt }) => (
+const BacklogTotalCard = ({ totalAmt, baseAmt = totalAmt, hospitalPlanAmt = 0 }) => {
+  const hospitalPlanSign = hospitalPlanAmt >= 0 ? '+' : '-';
+  return (
   <Card className="p-5 sm:p-6 bg-white border border-slate-200 shadow-lg flex items-center justify-between gap-4">
     <div className="shrink-0 w-10 h-10 sm:w-14 sm:h-14 bg-blue-50 rounded-2xl text-blue-500 flex items-center justify-center shadow-sm"><Activity size={30} /></div>
     <div className="min-w-0 flex-1">
-      <div className="text-[10px] sm:text-sm font-bold text-slate-600 uppercase leading-none mb-2 tracking-widest truncate">受注残合計 (レンタル・特価見込み総額)</div>
+      <div className="text-[10px] sm:text-sm font-bold text-slate-600 uppercase leading-tight mb-2 tracking-widest">
+        受注残合計 (レンタル・特価見込み総額) + 入院予定者（退院予定者） {hospitalPlanSign}¥{Math.abs(hospitalPlanAmt).toLocaleString()}円
+      </div>
+      <div className="text-[10px] sm:text-xs font-bold text-slate-500 leading-tight mb-2">レンタル・特価見込み総額 ¥{yenK(baseAmt)}千円</div>
       <h3 className="text-2xl sm:text-5xl font-bold text-slate-800 leading-none truncate">¥{yenK(totalAmt)}千円</h3>
     </div>
   </Card>
-);
+  );
+};
 
 const SetupScreen = ({ onComplete }) => {
   const [branchCode, setBranchCode] = useState('');
@@ -674,6 +680,12 @@ const NewEntryForm = React.memo(({ salespersons, onSubmit, selectedStaffId, onSt
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6 pt-6 border-t-2 border-slate-100">
           <Field label="担当者"><select value={selectedStaffId} onChange={(e) => onStaffChange(Number(e.target.value))} className="field-input text-lg">{salespersons.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}</select></Field>
           <Field label={isOtherSalesCategory ? '施設・病院名（一般利用者含む）' : '利用者様名'}><input value={data.customerName} onChange={(e) => setData({ ...data, customerName: e.target.value })} placeholder={isOtherSalesCategory ? '施設・病院名など' : 'お名前'} className="field-input text-lg" {...JAPANESE_TEXT_INPUT_PROPS} /></Field>
+          {isHospitalPlanCategory && (
+            <div className="sm:col-span-2 lg:col-span-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] sm:text-xs font-bold leading-relaxed text-amber-800">
+              <div>入院予定: 15日以前は半月分、16日以降は記入不要。</div>
+              <div>退院予定: 15日以前は月額、16日以降は半月分の金額を入力。</div>
+            </div>
+          )}
           <Field label={RENTAL_CATEGORIES.includes(data.category) ? '金額' : '金額(税抜)'}>
             {rentalWithBilling && (
               <div className="absolute right-1 -top-4 flex flex-row flex-nowrap bg-slate-100 rounded-lg p-0.5 border border-slate-200 shadow-sm z-10">
@@ -681,11 +693,6 @@ const NewEntryForm = React.memo(({ salespersons, onSubmit, selectedStaffId, onSt
               </div>
             )}
             {rentalWithBilling && <p className="mb-1 text-xs font-bold text-amber-700">別商品交換時は差額を入力</p>}
-            {isHospitalPlanCategory && (
-              <p className="mb-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] font-bold leading-relaxed text-amber-800">
-                入院予定: 15日以前は半月分、16日以降は記入不要。退院予定: 15日以前は月額、16日以降は半月分の金額を入力。
-              </p>
-            )}
             <input type="number" value={data.amount} onChange={(e) => setData({ ...data, amount: e.target.value })} placeholder="¥" className="field-input text-2xl" />
           </Field>
           <Field label="状態"><select value={data.status} onChange={(e) => setData({ ...data, status: e.target.value })} className="field-input text-base">{getStatusesByCategory(data.category).map((s) => <option key={s}>{s}</option>)}</select></Field>
@@ -838,6 +845,8 @@ const buildProgressTotalRow = (rows) => {
     budgetEquipment: 0,
     current: {
       rentalBacklogTotalAmt: 0,
+      rentalBacklogBaseAmt: 0,
+      hospitalPlanBacklogAmt: 0,
       rentalNew: { doneCnt: 0, doneAmt: 0, forecastCnt: 0, forecastAmt: 0, sourceCount: createSourceCount() },
       bed: { doneCnt: 0, doneAmt: 0, forecastCnt: 0, forecastAmt: 0, sourceCount: createSourceCount() },
       renovation: { doneCnt: 0, doneAmt: 0, forecastCnt: 0, forecastAmt: 0, sourceCount: createSourceCount() },
@@ -851,6 +860,8 @@ const buildProgressTotalRow = (rows) => {
     total.budgetRenovation += Number(row.budgetRenovation || 0);
     total.budgetEquipment += Number(row.budgetEquipment || 0);
     total.current.rentalBacklogTotalAmt += Number(row.current?.rentalBacklogTotalAmt || 0);
+    total.current.rentalBacklogBaseAmt += Number(row.current?.rentalBacklogBaseAmt || 0);
+    total.current.hospitalPlanBacklogAmt += Number(row.current?.hospitalPlanBacklogAmt || 0);
     for (const key of ['rentalNew', 'bed', 'renovation', 'equipment', 'otherSales']) {
       const source = row.current?.[key] || {};
       const target = total.current[key];
@@ -1156,9 +1167,12 @@ const buildPdfCardPages = (branchSummary, branchTotalPersonDetailedSummary) => {
   return pages;
 };
 
-const PdfPrintBacklogCard = ({ totalAmt }) => (
-  <div style={{ padding: '1.5mm 2mm 3mm', marginBottom: '4mm', minHeight: '12mm', display: 'grid', gridTemplateColumns: '1fr 46mm', alignItems: 'center', boxSizing: 'border-box' }}>
-    <div style={{ fontSize: '11px', fontWeight: 950, color: '#475569', letterSpacing: 0, lineHeight: 1.15 }}>受注残合計（レンタル・特価見込総額）</div>
+const PdfPrintBacklogCard = ({ totalAmt, baseAmt = totalAmt, hospitalPlanAmt = 0 }) => (
+  <div style={{ padding: '1.5mm 2mm 3mm', marginBottom: '4mm', minHeight: '14mm', display: 'grid', gridTemplateColumns: '1fr 46mm', alignItems: 'center', boxSizing: 'border-box' }}>
+    <div style={{ fontSize: '9px', fontWeight: 950, color: '#475569', letterSpacing: 0, lineHeight: 1.25 }}>
+      <div>受注残合計（レンタル・特価見込総額）+ 入院予定者（退院予定者） {hospitalPlanAmt >= 0 ? '+' : '-'}¥{Math.abs(hospitalPlanAmt).toLocaleString()}円</div>
+      <div style={{ color: '#64748b', fontSize: '8px' }}>レンタル・特価見込総額 ¥{yenK(baseAmt)}千円</div>
+    </div>
     <div style={{ height: '10mm', textAlign: 'center', fontSize: '23px', fontWeight: 950, color: '#0f172a', lineHeight: 1, display: 'grid', placeItems: 'center', boxSizing: 'border-box' }}>¥{yenK(totalAmt)}千円</div>
   </div>
 );
@@ -1381,7 +1395,7 @@ const PDFTemplate = React.forwardRef(({ branchName, currentMonth, branchSummary,
     {cardPages.map((page, index) => (
       <div key={`print-card-page-${index}`} className="pdf-page p-[12mm]" style={{ width: '210mm', height: '297mm', boxSizing: 'border-box', display: 'flex', flexDirection: 'column', backgroundColor: '#fff', letterSpacing: 0, fontKerning: 'normal', overflow: 'hidden' }}>
         <PdfHeader branchName={branchName} currentMonth={currentMonth} compact />
-        {page.showBacklog && <PdfPrintBacklogCard totalAmt={branchSummary.rentalBacklogTotalAmt} />}
+        {page.showBacklog && <PdfPrintBacklogCard totalAmt={branchSummary.rentalBacklogTotalAmt} baseAmt={branchSummary.rentalBacklogBaseAmt} hospitalPlanAmt={branchSummary.hospitalPlanBacklogAmt} />}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '5mm', alignItems: 'start', flex: '1 1 auto' }}>
           {page.sections.map((section) => <PdfPrintMetricCard key={`${section.item.key}-${section.pageIndex}`} section={section} />)}
         </div>
@@ -1816,7 +1830,7 @@ const MainApp = ({ branchSetting }) => {
 
   const summarize = useCallback((targetOrders) => {
     const init = () => ({ doneCnt: 0, doneAmt: 0, forecastCnt: 0, forecastAmt: 0, sourceCount: createSourceCount(), categoryAmounts: {} });
-    const summary = { rentalNew: init(), bed: init(), renovation: init(), equipment: init(), otherSales: init(), rentalBacklogTotalAmt: 0 };
+    const summary = { rentalNew: init(), bed: init(), renovation: init(), equipment: init(), otherSales: init(), rentalBacklogTotalAmt: 0, rentalBacklogBaseAmt: 0, hospitalPlanBacklogAmt: 0 };
     for (const o of targetOrders) {
       const key = CATEGORY_TO_KEY[o.category];
       const target = key ? summary[key] : null;
@@ -1832,8 +1846,14 @@ const MainApp = ({ branchSetting }) => {
           target.doneAmt += amt;
         }
       }
-      if (o.category === HOSPITAL_PLAN_CATEGORY) summary.rentalBacklogTotalAmt += getHospitalPlanBacklogAmount(o);
-      else if (!done && RENTAL_CATEGORIES.includes(o.category)) summary.rentalBacklogTotalAmt += amt;
+      if (o.category === HOSPITAL_PLAN_CATEGORY) {
+        const hospitalPlanAmt = getHospitalPlanBacklogAmount(o);
+        summary.hospitalPlanBacklogAmt += hospitalPlanAmt;
+        summary.rentalBacklogTotalAmt += hospitalPlanAmt;
+      } else if (!done && RENTAL_CATEGORIES.includes(o.category)) {
+        summary.rentalBacklogBaseAmt += amt;
+        summary.rentalBacklogTotalAmt += amt;
+      }
     }
     return summary;
   }, []);
@@ -1853,7 +1873,9 @@ const MainApp = ({ branchSetting }) => {
         renovation: { doneCnt: 0, doneAmt: 0, forecastCnt: 0, forecastAmt: 0, sourceCount: createSourceCount() },
         equipment: { doneCnt: 0, doneAmt: 0, forecastCnt: 0, forecastAmt: 0, sourceCount: createSourceCount() },
         otherSales: { doneCnt: 0, doneAmt: 0, forecastCnt: 0, forecastAmt: 0, sourceCount: createSourceCount(), categoryAmounts: {} },
-        rentalBacklogTotalAmt: 0
+        rentalBacklogTotalAmt: 0,
+        rentalBacklogBaseAmt: 0,
+        hospitalPlanBacklogAmt: 0
       };
     });
     for (const o of targetOrders) {
@@ -1861,8 +1883,14 @@ const MainApp = ({ branchSetting }) => {
       if (!stats) continue;
       const amt = Number(o.amount || 0);
       const done = isCompletedStatus(o.status);
-      if (o.category === HOSPITAL_PLAN_CATEGORY) stats.rentalBacklogTotalAmt += getHospitalPlanBacklogAmount(o);
-      else if (!done && RENTAL_CATEGORIES.includes(o.category)) stats.rentalBacklogTotalAmt += amt;
+      if (o.category === HOSPITAL_PLAN_CATEGORY) {
+        const hospitalPlanAmt = getHospitalPlanBacklogAmount(o);
+        stats.hospitalPlanBacklogAmt += hospitalPlanAmt;
+        stats.rentalBacklogTotalAmt += hospitalPlanAmt;
+      } else if (!done && RENTAL_CATEGORIES.includes(o.category)) {
+        stats.rentalBacklogBaseAmt += amt;
+        stats.rentalBacklogTotalAmt += amt;
+      }
       const key = CATEGORY_TO_KEY[o.category];
       if (!key) continue;
       stats[key].forecastCnt += 1;
@@ -2039,7 +2067,7 @@ const MainApp = ({ branchSetting }) => {
         {activeTab === 'new_entry' && <section className="space-y-6"><SectionHeader icon={Plus} title="新規案件登録" subtitle="New Entry" /><NewEntryForm salespersons={salespersons} onSubmit={handleEntrySubmit} selectedStaffId={entryStaffId} onStaffChange={setEntryStaffId} /><div className="space-y-4 pt-6"><h3 className="text-xl font-bold text-slate-800 flex items-center gap-2 px-2"><div className="w-2.5 h-6 bg-blue-400 rounded-full" />本日の登録内容</h3><OrderTable items={entryStaffOrders} onUpdate={updateOrderField} onDelete={deleteOrder} salespersons={salespersons} /></div></section>}
         {activeTab === 'branch_total' && <section className="space-y-4">
           <div className="flex justify-between items-start mb-2 print:hidden"><SectionHeader icon={PieChart} title={`${BRANCH_NAME} 合計・見込み`} subtitle="Branch Status" /><div className="flex items-center gap-2"><button onClick={handleExportPDF} disabled={isGeneratingPDF} className="bg-blue-600 text-white px-5 py-3 rounded-xl font-bold shadow-lg hover:bg-blue-700 flex items-center gap-3 disabled:opacity-50">{isGeneratingPDF ? <Loader2 size={20} className="animate-spin" /> : <FileDown size={20} />}印刷</button><button onClick={() => setShowBranchPreview(true)} className="bg-emerald-500 text-white px-4 py-2.5 rounded-xl font-bold text-sm shadow-md hover:bg-emerald-600 flex items-center gap-2"><Users size={18} />全体プレビュー</button></div></div>
-          <BranchSourceFilter currentFilter={branchTotalSourceFilter} onChange={setBranchTotalSourceFilter} prefix="branch" /><BranchSummaryCards summary={branchSummary} staffBreakdown={branchTotalPersonDetailedSummary} openMap={branchSourceBreakdownOpen} onToggle={toggleBranchSourceBreakdown} /><BacklogTotalCard totalAmt={branchSummary.rentalBacklogTotalAmt} />
+          <BranchSourceFilter currentFilter={branchTotalSourceFilter} onChange={setBranchTotalSourceFilter} prefix="branch" /><BranchSummaryCards summary={branchSummary} staffBreakdown={branchTotalPersonDetailedSummary} openMap={branchSourceBreakdownOpen} onToggle={toggleBranchSourceBreakdown} /><BacklogTotalCard totalAmt={branchSummary.rentalBacklogTotalAmt} baseAmt={branchSummary.rentalBacklogBaseAmt} hospitalPlanAmt={branchSummary.hospitalPlanBacklogAmt} />
           <div className="flex bg-white p-2 rounded-xl border border-slate-200 shadow-sm gap-2 overflow-x-auto mt-8 mb-2 print:hidden"><button onClick={() => setBranchTotalStaffId('all')} className={`px-6 py-2 rounded-lg font-bold text-sm whitespace-nowrap ${branchTotalStaffId === 'all' ? 'bg-slate-700 text-white shadow' : 'text-slate-600 hover:bg-slate-50'}`}>全員表示</button>{salespersons.map((staff) => <button key={staff.id} onClick={() => setBranchTotalStaffId(staff.id)} className={`px-6 py-2 rounded-lg font-bold text-sm whitespace-nowrap ${branchTotalStaffId === staff.id ? 'bg-blue-500 text-white shadow' : 'text-slate-600 hover:bg-slate-50'}`}>{staff.name}</button>)}</div>
           <Card noPadding className="border border-slate-200 shadow-lg rounded-2xl overflow-hidden"><div className="bg-blue-500 text-white px-5 py-3 font-bold text-base uppercase tracking-widest flex items-center gap-3"><TrendingUp size={18} />進捗ステータス詳細</div><ProgressTable data={branchTotalPersonDetailedSummary} staffIdFilter={branchTotalStaffId} /></Card>
           {showBranchPreview && <PreviewModal onClose={() => setShowBranchPreview(false)} onExport={handleExportPDF} isGeneratingPDF={isGeneratingPDF} branchSummary={branchSummary} data={branchTotalPersonDetailedSummary} branchTotalSourceFilter={branchTotalSourceFilter} setBranchTotalSourceFilter={setBranchTotalSourceFilter} branchSourceBreakdownOpen={branchSourceBreakdownOpen} onToggleBranchSourceBreakdown={toggleBranchSourceBreakdown} />}
@@ -2355,7 +2383,7 @@ const DataPortabilityCard = ({ onExport, onImportClick, importRef, onImport, log
   </Card>
 );
 
-const PreviewModal = ({ onClose, onExport, isGeneratingPDF, branchSummary, data, branchTotalSourceFilter, setBranchTotalSourceFilter, branchSourceBreakdownOpen = {}, onToggleBranchSourceBreakdown = () => {} }) => <div className="fixed inset-0 z-[100] bg-slate-900/80 backdrop-blur-sm p-4 sm:p-8 overflow-y-auto flex items-start justify-center modal-overlay"><div className="bg-white w-full max-w-[1400px] rounded-2xl shadow-2xl overflow-hidden my-4 sm:my-8 modal-content"><div className="flex justify-between items-center p-4 sm:p-6 border-b border-slate-200 bg-slate-50 sticky top-0 z-10 print:hidden"><h2 className="text-2xl font-bold text-slate-800 flex items-center gap-2"><PieChart className="text-blue-500" />営業所合計 プレビュー</h2><div className="flex items-center gap-2"><button onClick={onExport} className="bg-blue-600 text-white px-6 py-2 rounded-xl font-bold shadow-sm flex items-center gap-2">{isGeneratingPDF ? <Loader2 size={18} className="animate-spin" /> : <FileDown size={18} />}印刷</button><button onClick={onClose} className="bg-slate-200 hover:bg-slate-300 text-slate-700 px-6 py-2 rounded-xl font-bold shadow-sm">閉じる</button></div></div><div className="p-4 sm:p-6 space-y-6"><BranchSourceFilter currentFilter={branchTotalSourceFilter} onChange={setBranchTotalSourceFilter} prefix="preview" /><BranchSummaryCards summary={branchSummary} staffBreakdown={data} openMap={branchSourceBreakdownOpen} onToggle={onToggleBranchSourceBreakdown} /><BacklogTotalCard totalAmt={branchSummary.rentalBacklogTotalAmt} /><Card noPadding className="border border-slate-200 shadow-xl rounded-2xl overflow-hidden"><div className="bg-blue-500 text-white px-5 py-3 font-bold text-base uppercase tracking-widest flex items-center gap-3"><TrendingUp size={18} />進捗ステータス詳細（全所員一覧）</div><ProgressTable data={data} staffIdFilter="all" /></Card></div></div></div>;
+const PreviewModal = ({ onClose, onExport, isGeneratingPDF, branchSummary, data, branchTotalSourceFilter, setBranchTotalSourceFilter, branchSourceBreakdownOpen = {}, onToggleBranchSourceBreakdown = () => {} }) => <div className="fixed inset-0 z-[100] bg-slate-900/80 backdrop-blur-sm p-4 sm:p-8 overflow-y-auto flex items-start justify-center modal-overlay"><div className="bg-white w-full max-w-[1400px] rounded-2xl shadow-2xl overflow-hidden my-4 sm:my-8 modal-content"><div className="flex justify-between items-center p-4 sm:p-6 border-b border-slate-200 bg-slate-50 sticky top-0 z-10 print:hidden"><h2 className="text-2xl font-bold text-slate-800 flex items-center gap-2"><PieChart className="text-blue-500" />営業所合計 プレビュー</h2><div className="flex items-center gap-2"><button onClick={onExport} className="bg-blue-600 text-white px-6 py-2 rounded-xl font-bold shadow-sm flex items-center gap-2">{isGeneratingPDF ? <Loader2 size={18} className="animate-spin" /> : <FileDown size={18} />}印刷</button><button onClick={onClose} className="bg-slate-200 hover:bg-slate-300 text-slate-700 px-6 py-2 rounded-xl font-bold shadow-sm">閉じる</button></div></div><div className="p-4 sm:p-6 space-y-6"><BranchSourceFilter currentFilter={branchTotalSourceFilter} onChange={setBranchTotalSourceFilter} prefix="preview" /><BranchSummaryCards summary={branchSummary} staffBreakdown={data} openMap={branchSourceBreakdownOpen} onToggle={onToggleBranchSourceBreakdown} /><BacklogTotalCard totalAmt={branchSummary.rentalBacklogTotalAmt} baseAmt={branchSummary.rentalBacklogBaseAmt} hospitalPlanAmt={branchSummary.hospitalPlanBacklogAmt} /><Card noPadding className="border border-slate-200 shadow-xl rounded-2xl overflow-hidden"><div className="bg-blue-500 text-white px-5 py-3 font-bold text-base uppercase tracking-widest flex items-center gap-3"><TrendingUp size={18} />進捗ステータス詳細（全所員一覧）</div><ProgressTable data={data} staffIdFilter="all" /></Card></div></div></div>;
 
 const Usage = () => <section className="space-y-6"><SectionHeader icon={Info} title="アプリの使い方・活用術" subtitle="How to use & Tips" /><Card className="p-6 sm:p-10 space-y-10 shadow-md border-slate-200 text-slate-800"><div className="bg-blue-50 border border-blue-100 rounded-xl p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4"><div><h3 className="text-lg font-bold text-slate-800 mb-1">印刷用の説明書</h3><p className="text-sm font-bold text-slate-600 leading-relaxed">配布先の方は localhost ではなく、公開URLの説明書を開いてください。</p></div><a href="https://solar-silver-progress-app.netlify.app/manual.html" target="_blank" rel="noreferrer" className="shrink-0 bg-blue-600 text-white px-5 py-3 rounded-xl font-bold text-sm shadow-md hover:bg-blue-700 text-center">説明書を開く</a></div><div><h3 className="text-lg font-bold border-l-4 border-slate-800 pl-3 mb-4">最初にやるべきこと</h3><p className="text-sm pl-6 font-bold leading-relaxed text-slate-700">「マスタ設定」タブを開き、各スタッフの名前を追加した上で、今月の「予算」や「目標数値」を入力してください。<br />これにより、目標進捗や営業所合計のグラフが正しく描画されるようになります。</p></div><div className="border-b border-slate-100 pb-6"><h3 className="text-xl font-bold flex items-center gap-2 mb-4">正確な数値管理のために</h3><p className="font-bold leading-relaxed text-sm sm:text-base text-slate-800">正確な数値を算出するには、日々の受注案件を確実に入力することが重要です。入力を徹底することで、営業所全体の着地予測や個人の目標達成度が正しく可視化されます。</p></div><div className="space-y-6"><h3 className="text-lg font-bold border-l-4 border-slate-800 pl-3">各機能の役割と使い方</h3>{[[Plus, '登録', '新規案件や追加案件を入力します。別商品交換の場合は納品と回収の差額の金額を入力してください。'], [List, '受注残一覧', '登録案件の状態を管理します。担当者やカテゴリごとに案件を絞り込めます。'], [PieChart, '営業所合計', '営業所全体の今月の実績と見込みを自動集計します。'], [BarChart3, '目標進捗', 'マスタで設定した個人目標に対する現在の達成状況を確認できます。'], [LineChart, '推移グラフ', '4月始まりの今年度の月別実績推移を表示します。']].map(([Icon, title, text]) => <div key={title} className="space-y-2"><p className="font-bold flex items-center gap-2 text-slate-800"><Icon size={18} className="text-slate-700" />{title}</p><p className="text-sm pl-6 leading-relaxed font-bold text-slate-700">{text}</p></div>)}</div></Card></section>;
 
@@ -2365,7 +2393,9 @@ const createEmptySummary = () => ({
   renovation: { doneCnt: 0, doneAmt: 0, forecastCnt: 0, forecastAmt: 0, sourceCount: { 包括: 0, 居宅: 0, '退院/連携室': 0 } },
   equipment: { doneCnt: 0, doneAmt: 0, forecastCnt: 0, forecastAmt: 0, sourceCount: { 包括: 0, 居宅: 0, '退院/連携室': 0 } },
   otherSales: { doneCnt: 0, doneAmt: 0, forecastCnt: 0, forecastAmt: 0, sourceCount: { 包括: 0, 居宅: 0, '退院/連携室': 0 } },
-  rentalBacklogTotalAmt: 0
+  rentalBacklogTotalAmt: 0,
+  rentalBacklogBaseAmt: 0,
+  hospitalPlanBacklogAmt: 0
 });
 
 const addOrderToSummary = (summary, order) => {
@@ -2382,8 +2412,14 @@ const addOrderToSummary = (summary, order) => {
       target.doneAmt += amount;
     }
   }
-  if (order.category === HOSPITAL_PLAN_CATEGORY) summary.rentalBacklogTotalAmt += getHospitalPlanBacklogAmount(order);
-  else if (!done && RENTAL_CATEGORIES.includes(order.category)) summary.rentalBacklogTotalAmt += amount;
+  if (order.category === HOSPITAL_PLAN_CATEGORY) {
+    const hospitalPlanAmt = getHospitalPlanBacklogAmount(order);
+    summary.hospitalPlanBacklogAmt += hospitalPlanAmt;
+    summary.rentalBacklogTotalAmt += hospitalPlanAmt;
+  } else if (!done && RENTAL_CATEGORIES.includes(order.category)) {
+    summary.rentalBacklogBaseAmt += amount;
+    summary.rentalBacklogTotalAmt += amount;
+  }
 };
 
 const HeadOfficeMetric = ({ label, value, sub }) => (
