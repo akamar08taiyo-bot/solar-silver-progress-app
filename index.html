@@ -625,6 +625,7 @@ const SetupScreen = ({ onComplete }) => {
 const NewEntryForm = React.memo(({ salespersons, onSubmit, selectedStaffId, onStaffChange }) => {
   const [data, setData] = useState({ customerName: '', careHomeName: '', category: RENTAL_CATEGORIES[0], source: sources[0], amount: '', status: '未確定', isCarryOver: false, billingType: 'full' });
   const [showOptionalCategories, setShowOptionalCategories] = useState(() => localStorage.getItem('solar_silver_optional_categories_open') === 'true');
+  const [showHospitalPlanNote, setShowHospitalPlanNote] = useState(false);
   const rentalWithBilling = RENTAL_CATEGORIES.includes(data.category) && data.category !== '特価ベッド';
   const isOtherSalesCategory = OTHER_SALES_CATS.includes(data.category);
   const isHospitalPlanCategory = data.category === HOSPITAL_PLAN_CATEGORY;
@@ -680,12 +681,6 @@ const NewEntryForm = React.memo(({ salespersons, onSubmit, selectedStaffId, onSt
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6 pt-6 border-t-2 border-slate-100">
           <Field label="担当者"><select value={selectedStaffId} onChange={(e) => onStaffChange(Number(e.target.value))} className="field-input text-lg">{salespersons.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}</select></Field>
           <Field label={isOtherSalesCategory ? '施設・病院名（一般利用者含む）' : '利用者様名'}><input value={data.customerName} onChange={(e) => setData({ ...data, customerName: e.target.value })} placeholder={isOtherSalesCategory ? '施設・病院名など' : 'お名前'} className="field-input text-lg" {...JAPANESE_TEXT_INPUT_PROPS} /></Field>
-          {isHospitalPlanCategory && (
-            <div className="w-fit max-w-full rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] sm:text-xs font-bold leading-relaxed text-amber-800">
-              <div>入院予定: 15日以前は半月分、16日以降は記入不要。</div>
-              <div>退院予定: 15日以前は月額、16日以降は半月分の金額を入力。</div>
-            </div>
-          )}
           <Field label={RENTAL_CATEGORIES.includes(data.category) ? '金額' : '金額(税抜)'}>
             {rentalWithBilling && (
               <div className="absolute right-1 -top-4 flex flex-row flex-nowrap bg-slate-100 rounded-lg p-0.5 border border-slate-200 shadow-sm z-10">
@@ -693,6 +688,20 @@ const NewEntryForm = React.memo(({ salespersons, onSubmit, selectedStaffId, onSt
               </div>
             )}
             {rentalWithBilling && <p className="mb-1 text-xs font-bold text-amber-700">別商品交換時は差額を入力</p>}
+            {isHospitalPlanCategory && (
+              <div className="mb-2">
+                <button type="button" onClick={() => setShowHospitalPlanNote((open) => !open)} className="w-fit max-w-full rounded-lg border border-amber-200 bg-amber-50 px-3 py-1.5 text-[11px] font-extrabold text-amber-800 flex items-center gap-2 hover:bg-amber-100">
+                  <span>入退院予定者の金額入力について</span>
+                  <span className="text-sm leading-none">{showHospitalPlanNote ? '▲' : '▼'}</span>
+                </button>
+                {showHospitalPlanNote && (
+                  <div className="mt-1.5 w-fit max-w-full rounded-lg border border-amber-200 bg-white px-3 py-2 text-[11px] sm:text-xs font-bold leading-relaxed text-amber-800">
+                    <div>入院予定: 15日以前は半月分、16日以降は記入不要。</div>
+                    <div>退院予定: 15日以前は月額、16日以降は半月分の金額を入力。</div>
+                  </div>
+                )}
+              </div>
+            )}
             <input type="number" value={data.amount} onChange={(e) => setData({ ...data, amount: e.target.value })} placeholder="¥" className="field-input text-2xl" />
           </Field>
           <Field label="状態"><select value={data.status} onChange={(e) => setData({ ...data, status: e.target.value })} className="field-input text-base">{getStatusesByCategory(data.category).map((s) => <option key={s}>{s}</option>)}</select></Field>
