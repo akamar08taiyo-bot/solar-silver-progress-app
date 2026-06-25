@@ -90,13 +90,19 @@ const auth = getAuth(app);
 const db = getFirestore(app);
 
 const RENTAL_CATEGORIES = ['レンタル新規', '既存追加', '特価ベッド'];
-const SALES_CATEGORIES = ['住宅改修', '特定福祉用具販売', '一般販売', '紙おむつ', '消耗品'];
+const HOSPITAL_PLAN_CATEGORY = '入退院予定者';
+const SALES_CATEGORIES = ['住宅改修', '特定福祉用具販売', HOSPITAL_PLAN_CATEGORY, '一般販売', '紙おむつ', '消耗品'];
 const OTHER_SALES_CATS = ['一般販売', '紙おむつ', '消耗品'];
 const APPLICATION_MARK_CATEGORIES = ['住宅改修', '特定福祉用具販売'];
 const allCategories = [...RENTAL_CATEGORIES, ...SALES_CATEGORIES];
 const sources = ['包括', '居宅', '退院/連携室', 'その他'];
 const STATUS_RENTAL = ['未確定', '確定済'];
 const STATUS_SALES = ['未売上', '売上済'];
+const STATUS_HOSPITAL_PLAN = ['入院予定', '退院予定'];
+const HOSPITAL_PLAN_DAY_OPTIONS = [
+  { value: 'before15', label: '15日以前' },
+  { value: 'after16', label: '16日以降' }
+];
 const HEAD_OFFICE_SETTING_CODE = '本社';
 const HEAD_OFFICE_ACCESS_CODE = 'TSS000';
 const HEAD_OFFICE_DIRECTORY_APP_ID = 'solar-silver-head-office';
@@ -153,8 +159,19 @@ const CHART_CONFIG_FIELDS = [
   { label: '特定福祉用具(円)', field: 'equipment' }
 ];
 
-const getStatusesByCategory = (cat) => (RENTAL_CATEGORIES.includes(cat) ? STATUS_RENTAL : STATUS_SALES);
+const getStatusesByCategory = (cat) => {
+  if (cat === HOSPITAL_PLAN_CATEGORY) return STATUS_HOSPITAL_PLAN;
+  return RENTAL_CATEGORIES.includes(cat) ? STATUS_RENTAL : STATUS_SALES;
+};
 const isCompletedStatus = (status) => status === '確定済' || status === '売上済';
+const getHospitalPlanBacklogAmount = (order) => {
+  if (order?.category !== HOSPITAL_PLAN_CATEGORY) return 0;
+  const amount = Number(order.amount || 0);
+  const isBefore15 = (order.hospitalPlanDayType || 'before15') === 'before15';
+  if (order.status === '入院予定') return isBefore15 ? -Math.floor(amount / 2) : 0;
+  if (order.status === '退院予定') return isBefore15 ? amount : Math.floor(amount / 2);
+  return 0;
+};
 const yenK = (amount) => Math.floor(Number(amount || 0) / 1000).toLocaleString();
 const formatMonth = (month) => `${month.split('-')[0]}年${Number(month.split('-')[1])}月`;
 const createSourceCount = () => ({ 包括: 0, 居宅: 0, '退院/連携室': 0 });
@@ -683,6 +700,7 @@ const Field = ({ label, children }) => (
 const OrderRow = React.memo(({ order, onUpdate, onDelete, salespersons = [] }) => {
   const canMarkApplying = APPLICATION_MARK_CATEGORIES.includes(order.category);
   const isOtherSalesCategory = OTHER_SALES_CATS.includes(order.category);
+  const isHospitalPlanCategory = order.category === HOSPITAL_PLAN_CATEGORY;
   const changeBilling = async (billingType) => {
     if (order.billingType === billingType) return;
     const amount = Number(order.amount || 0);
@@ -710,6 +728,16 @@ const OrderRow = React.memo(({ order, onUpdate, onDelete, salespersons = [] }) =
       </td>
       <td className="py-1 px-2 w-[17%]">{isOtherSalesCategory ? <span className="block text-xs text-slate-400 font-bold px-1 py-0.5">対象外</span> : <AutoSaveInput value={order.careHomeName} saveId={order.id} saveField="careHomeName" placeholder="事業所名" onSave={onUpdate} className="w-full bg-transparent border-none outline-none text-xs text-slate-600 font-bold px-1 py-0.5 focus:bg-white focus:rounded" />}</td>
       <td className="py-1 px-2 w-[12%] text-center">
+        {isHospitalPlanCategory && (
+          <div className="flex flex-col items-center gap-1">
+            <select value={order.hospitalPlanDayType || 'before15'} onChange={(e) => onUpdate(order.id, 'hospitalPlanDayType', e.target.value)} className="text-[10px] font-bold text-slate-700 bg-white border border-slate-200 rounded px-2 py-1 shadow-sm appearance-none text-center">
+              {HOSPITAL_PLAN_DAY_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+            </select>
+            <span className={`text-[9px] font-extrabold leading-none whitespace-nowrap ${getHospitalPlanBacklogAmount(order) < 0 ? 'text-red-600' : 'text-blue-600'}`}>
+              受注残 {getHospitalPlanBacklogAmount(order).toLocaleString()}円
+            </span>
+          </div>
+        )}
         {RENTAL_CATEGORIES.includes(order.category) && order.category !== '特価ベッド' && (
           <div className="flex flex-col items-center gap-1">
             <div className="flex items-center justify-center bg-slate-50 rounded-lg p-0.5 border border-slate-100">
@@ -753,11 +781,12 @@ const OrderTable = React.memo(({ items, onUpdate, onDelete, salespersons = [], s
       {displayCategories.map((cat) => {
         const list = groupedItems[cat] || [];
         if (!list.length && !onAddCategory) return null;
+        const categoryTotal = list.reduce((s, o) => s + (cat === HOSPITAL_PLAN_CATEGORY ? getHospitalPlanBacklogAmount(o) : Number(o.amount || 0)), 0);
         return (
           <div key={cat} className="bg-white border border-slate-200 shadow-sm rounded-xl overflow-hidden">
             <div className={`px-4 py-2 flex justify-between items-center font-bold text-xs uppercase tracking-widest ${RENTAL_CATEGORIES.includes(cat) ? 'bg-slate-800' : 'bg-slate-900'} text-white`}>
               <div className="flex items-center gap-2 shrink-0"><div className="w-1 h-4 bg-blue-400 rounded-full" /><span>{cat === '特定福祉用具販売' ? '特定福祉用具' : cat}</span></div>
-              <span className="font-bold opacity-95 text-sm ml-4 truncate">¥{list.reduce((s, o) => s + Number(o.amount || 0), 0).toLocaleString()}</span>
+              <span className="font-bold opacity-95 text-sm ml-4 truncate">{cat === HOSPITAL_PLAN_CATEGORY ? '受注残 ' : '¥'}{categoryTotal.toLocaleString()}{cat === HOSPITAL_PLAN_CATEGORY ? '円' : ''}</span>
             </div>
             <div className="overflow-x-auto">
               <table className="w-full text-left table-fixed min-w-[820px]">
@@ -1634,6 +1663,7 @@ const MainApp = ({ branchSetting }) => {
       updateData.source = OTHER_SALES_CATS.includes(value) ? 'その他' : inferSourceFromCareHomeName(order?.careHomeName);
       if (OTHER_SALES_CATS.includes(value)) updateData.careHomeName = '';
       if (!APPLICATION_MARK_CATEGORIES.includes(value)) updateData.isApplying = false;
+      updateData.hospitalPlanDayType = value === HOSPITAL_PLAN_CATEGORY ? (order?.hospitalPlanDayType || 'before15') : null;
     }
     if (field === 'careHomeName') {
       const order = orders.find((item) => item.id === id);
@@ -1649,7 +1679,7 @@ const MainApp = ({ branchSetting }) => {
     const newId = `order_${Date.now()}`;
     let finalAmount = Number(data.amount || 0);
     if (data.billingType === 'half') finalAmount = Math.floor(finalAmount / 2);
-    await setDoc(doc(db, ...basePath, 'orders', newId), { ...data, isApplying: false, isMoveToPrevious: false, targetMonth: currentMonth, salespersonId: entryStaffId, amount: finalAmount, createdAt: new Date().toISOString() });
+    await setDoc(doc(db, ...basePath, 'orders', newId), { ...data, hospitalPlanDayType: data.category === HOSPITAL_PLAN_CATEGORY ? 'before15' : null, isApplying: false, isMoveToPrevious: false, targetMonth: currentMonth, salespersonId: entryStaffId, amount: finalAmount, createdAt: new Date().toISOString() });
     showMessage('登録しました');
   }, [basePath, currentMonth, entryStaffId, showMessage]);
 
@@ -1668,6 +1698,7 @@ const MainApp = ({ branchSetting }) => {
       isMoveToPrevious: false,
       isApplying: false,
       billingType: 'full',
+      hospitalPlanDayType: category === HOSPITAL_PLAN_CATEGORY ? 'before15' : null,
       targetMonth: currentMonth,
       salespersonId: Number(targetStaffId),
       createdAt: new Date().toISOString()
@@ -1787,7 +1818,8 @@ const MainApp = ({ branchSetting }) => {
           target.doneAmt += amt;
         }
       }
-      if (!done && RENTAL_CATEGORIES.includes(o.category)) summary.rentalBacklogTotalAmt += amt;
+      if (o.category === HOSPITAL_PLAN_CATEGORY) summary.rentalBacklogTotalAmt += getHospitalPlanBacklogAmount(o);
+      else if (!done && RENTAL_CATEGORIES.includes(o.category)) summary.rentalBacklogTotalAmt += amt;
     }
     return summary;
   }, []);
@@ -1815,7 +1847,8 @@ const MainApp = ({ branchSetting }) => {
       if (!stats) continue;
       const amt = Number(o.amount || 0);
       const done = isCompletedStatus(o.status);
-      if (!done && RENTAL_CATEGORIES.includes(o.category)) stats.rentalBacklogTotalAmt += amt;
+      if (o.category === HOSPITAL_PLAN_CATEGORY) stats.rentalBacklogTotalAmt += getHospitalPlanBacklogAmount(o);
+      else if (!done && RENTAL_CATEGORIES.includes(o.category)) stats.rentalBacklogTotalAmt += amt;
       const key = CATEGORY_TO_KEY[o.category];
       if (!key) continue;
       stats[key].forecastCnt += 1;
@@ -2335,7 +2368,8 @@ const addOrderToSummary = (summary, order) => {
       target.doneAmt += amount;
     }
   }
-  if (!done && RENTAL_CATEGORIES.includes(order.category)) summary.rentalBacklogTotalAmt += amount;
+  if (order.category === HOSPITAL_PLAN_CATEGORY) summary.rentalBacklogTotalAmt += getHospitalPlanBacklogAmount(order);
+  else if (!done && RENTAL_CATEGORIES.includes(order.category)) summary.rentalBacklogTotalAmt += amount;
 };
 
 const HeadOfficeMetric = ({ label, value, sub }) => (
