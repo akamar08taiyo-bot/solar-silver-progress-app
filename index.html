@@ -99,10 +99,6 @@ const sources = ['包括', '居宅', '退院/連携室', 'その他'];
 const STATUS_RENTAL = ['未確定', '確定済'];
 const STATUS_SALES = ['未売上', '売上済'];
 const STATUS_HOSPITAL_PLAN = ['入院予定', '退院予定'];
-const HOSPITAL_PLAN_DAY_OPTIONS = [
-  { value: 'before15', label: '15日以前' },
-  { value: 'after16', label: '16日以降' }
-];
 const HEAD_OFFICE_SETTING_CODE = '本社';
 const HEAD_OFFICE_ACCESS_CODE = 'TSS000';
 const HEAD_OFFICE_DIRECTORY_APP_ID = 'solar-silver-head-office';
@@ -172,10 +168,7 @@ const getHospitalPlanBacklogAmount = (order) => {
     if (order.status === '退院予定') return amount;
     return 0;
   }
-  const isBefore15 = (order.hospitalPlanDayType || 'before15') === 'before15';
-  if (order.status === '入院予定') return isBefore15 ? -Math.floor(amount / 2) : 0;
-  if (order.status === '退院予定') return isBefore15 ? amount : Math.floor(amount / 2);
-  return 0;
+  return amount;
 };
 const yenK = (amount) => Math.floor(Number(amount || 0) / 1000).toLocaleString();
 const formatMonth = (month) => `${month.split('-')[0]}年${Number(month.split('-')[1])}月`;
@@ -688,21 +681,21 @@ const NewEntryForm = React.memo(({ salespersons, onSubmit, selectedStaffId, onSt
               </div>
             )}
             {rentalWithBilling && <p className="mb-1 text-xs font-bold text-amber-700">別商品交換時は差額を入力</p>}
+            <input type="number" value={data.amount} onChange={(e) => setData({ ...data, amount: e.target.value })} placeholder="¥" className="field-input text-2xl" />
             {isHospitalPlanCategory && (
-              <div className="mb-2">
+              <div className="mt-2">
                 <button type="button" onClick={() => setShowHospitalPlanNote((open) => !open)} className="w-fit max-w-full rounded-lg border border-amber-200 bg-amber-50 px-3 py-1.5 text-[11px] font-extrabold text-amber-800 flex items-center gap-2 hover:bg-amber-100">
-                  <span>入退院予定者の金額入力について</span>
+                  <span>入退院予定者の入力について</span>
                   <span className="text-sm leading-none">{showHospitalPlanNote ? '▲' : '▼'}</span>
                 </button>
                 {showHospitalPlanNote && (
                   <div className="mt-1.5 w-fit max-w-full rounded-lg border border-amber-200 bg-white px-3 py-2 text-[11px] sm:text-xs font-bold leading-relaxed text-amber-800">
-                    <div>入院予定: 15日以前は半月分、16日以降は記入不要。</div>
+                    <div>入院予定: 15日以前は半月分のマイナス金額を記入、16日以降は登録不要。</div>
                     <div>退院予定: 15日以前は月額、16日以降は半月分の金額を入力。</div>
                   </div>
                 )}
               </div>
             )}
-            <input type="number" value={data.amount} onChange={(e) => setData({ ...data, amount: e.target.value })} placeholder="¥" className="field-input text-2xl" />
           </Field>
           <Field label="状態"><select value={data.status} onChange={(e) => setData({ ...data, status: e.target.value })} className="field-input text-base">{getStatusesByCategory(data.category).map((s) => <option key={s}>{s}</option>)}</select></Field>
           {!isOtherSalesCategory && <Field label="区分"><select value={data.source} onChange={(e) => setData({ ...data, source: e.target.value })} className="field-input text-base">{sources.map((s) => <option key={s}>{s}</option>)}</select></Field>}
@@ -757,9 +750,7 @@ const OrderRow = React.memo(({ order, onUpdate, onDelete, salespersons = [] }) =
       <td className="py-1 px-2 w-[12%] text-center">
         {isHospitalPlanCategory && (
           <div className="flex flex-col items-center gap-1">
-            <select value={order.hospitalPlanDayType || 'before15'} onChange={(e) => onUpdate(order.id, 'hospitalPlanDayType', e.target.value)} className="text-[10px] font-bold text-slate-700 bg-white border border-slate-200 rounded px-2 py-1 shadow-sm appearance-none text-center">
-              {HOSPITAL_PLAN_DAY_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-            </select>
+            <span className="text-[9px] font-extrabold text-slate-500 leading-none whitespace-nowrap">金額で調整</span>
             <span className={`text-[9px] font-extrabold leading-none whitespace-nowrap ${getHospitalPlanBacklogAmount(order) < 0 ? 'text-red-600' : 'text-blue-600'}`}>
               受注残 {getHospitalPlanBacklogAmount(order).toLocaleString()}円
             </span>
@@ -1697,7 +1688,7 @@ const MainApp = ({ branchSetting }) => {
       updateData.source = OTHER_SALES_CATS.includes(value) ? 'その他' : inferSourceFromCareHomeName(order?.careHomeName);
       if (OTHER_SALES_CATS.includes(value)) updateData.careHomeName = '';
       if (!APPLICATION_MARK_CATEGORIES.includes(value)) updateData.isApplying = false;
-      updateData.hospitalPlanDayType = value === HOSPITAL_PLAN_CATEGORY ? (order?.hospitalPlanDayType || 'before15') : null;
+      updateData.hospitalPlanDayType = null;
       updateData.hospitalPlanAmountMode = null;
     }
     if (field === 'careHomeName') {
@@ -1705,6 +1696,10 @@ const MainApp = ({ branchSetting }) => {
       if (!OTHER_SALES_CATS.includes(order?.category)) updateData.source = inferSourceFromCareHomeName(value);
     }
     if (field === 'hospitalPlanDayType') updateData.hospitalPlanAmountMode = null;
+    if (field === 'amount') {
+      const order = orders.find((item) => item.id === id);
+      if (order?.category === HOSPITAL_PLAN_CATEGORY) updateData.hospitalPlanAmountMode = null;
+    }
     if (field === 'isCarryOver' && value) updateData.isMoveToPrevious = false;
     if (field === 'isMoveToPrevious' && value) updateData.isCarryOver = false;
     await updateDoc(doc(db, ...basePath, 'orders', id), updateData);
@@ -1715,7 +1710,7 @@ const MainApp = ({ branchSetting }) => {
     const newId = `order_${Date.now()}`;
     let finalAmount = Number(data.amount || 0);
     if (data.billingType === 'half') finalAmount = Math.floor(finalAmount / 2);
-    await setDoc(doc(db, ...basePath, 'orders', newId), { ...data, hospitalPlanDayType: data.category === HOSPITAL_PLAN_CATEGORY ? 'before15' : null, hospitalPlanAmountMode: data.category === HOSPITAL_PLAN_CATEGORY ? 'adjusted' : null, isApplying: false, isMoveToPrevious: false, targetMonth: currentMonth, salespersonId: entryStaffId, amount: finalAmount, createdAt: new Date().toISOString() });
+    await setDoc(doc(db, ...basePath, 'orders', newId), { ...data, hospitalPlanDayType: null, hospitalPlanAmountMode: null, isApplying: false, isMoveToPrevious: false, targetMonth: currentMonth, salespersonId: entryStaffId, amount: finalAmount, createdAt: new Date().toISOString() });
     showMessage('登録しました');
   }, [basePath, currentMonth, entryStaffId, showMessage]);
 
@@ -1734,7 +1729,7 @@ const MainApp = ({ branchSetting }) => {
       isMoveToPrevious: false,
       isApplying: false,
       billingType: 'full',
-      hospitalPlanDayType: category === HOSPITAL_PLAN_CATEGORY ? 'before15' : null,
+      hospitalPlanDayType: null,
       hospitalPlanAmountMode: null,
       targetMonth: currentMonth,
       salespersonId: Number(targetStaffId),
