@@ -90,7 +90,8 @@ const auth = getAuth(app);
 const db = getFirestore(app);
 
 const RENTAL_CATEGORIES = ['レンタル新規', '既存追加', '特価ベッド'];
-const HOSPITAL_PLAN_CATEGORY = '入退院予定者';
+const HOSPITAL_PLAN_CATEGORY = '入退院（予定）';
+const HOSPITAL_PLAN_LEGACY_CATEGORY = '入退院予定者';
 const SALES_CATEGORIES = ['住宅改修', '特定福祉用具販売', HOSPITAL_PLAN_CATEGORY, '一般販売', '紙おむつ', '消耗品'];
 const OTHER_SALES_CATS = ['一般販売', '紙おむつ', '消耗品'];
 const APPLICATION_MARK_CATEGORIES = ['住宅改修', '特定福祉用具販売'];
@@ -98,7 +99,7 @@ const allCategories = [...RENTAL_CATEGORIES, ...SALES_CATEGORIES];
 const sources = ['包括', '居宅', '退院/連携室', 'その他'];
 const STATUS_RENTAL = ['未確定', '確定済'];
 const STATUS_SALES = ['未売上', '売上済'];
-const STATUS_HOSPITAL_PLAN = ['入院予定', '退院予定'];
+const STATUS_HOSPITAL_PLAN = ['入院（予定）', '退院（予定）'];
 const HEAD_OFFICE_SETTING_CODE = '本社';
 const HEAD_OFFICE_ACCESS_CODE = 'TSS000';
 const HEAD_OFFICE_DIRECTORY_APP_ID = 'solar-silver-head-office';
@@ -156,16 +157,17 @@ const CHART_CONFIG_FIELDS = [
 ];
 
 const getStatusesByCategory = (cat) => {
-  if (cat === HOSPITAL_PLAN_CATEGORY) return STATUS_HOSPITAL_PLAN;
+  if (isHospitalPlanCategoryName(cat)) return STATUS_HOSPITAL_PLAN;
   return RENTAL_CATEGORIES.includes(cat) ? STATUS_RENTAL : STATUS_SALES;
 };
 const isCompletedStatus = (status) => status === '確定済' || status === '売上済';
+const isHospitalPlanCategoryName = (category) => category === HOSPITAL_PLAN_CATEGORY || category === HOSPITAL_PLAN_LEGACY_CATEGORY;
 const getHospitalPlanBacklogAmount = (order) => {
-  if (order?.category !== HOSPITAL_PLAN_CATEGORY) return 0;
+  if (!isHospitalPlanCategoryName(order?.category)) return 0;
   const amount = Number(order.amount || 0);
   if (order.hospitalPlanAmountMode === 'adjusted') {
-    if (order.status === '入院予定') return -amount;
-    if (order.status === '退院予定') return amount;
+    if (order.status === '入院予定' || order.status === '入院（予定）') return -amount;
+    if (order.status === '退院予定' || order.status === '退院（予定）') return amount;
     return 0;
   }
   return amount;
@@ -551,15 +553,21 @@ const BranchSummaryCards = ({ summary, staffBreakdown = [], openMap = {}, onTogg
 
 const BacklogTotalCard = ({ totalAmt, baseAmt = totalAmt, hospitalPlanAmt = 0 }) => {
   const hospitalPlanSign = hospitalPlanAmt >= 0 ? '+' : '-';
+  const [isHospitalPlanApplied, setIsHospitalPlanApplied] = useState(true);
+  const displayAmt = isHospitalPlanApplied ? totalAmt : baseAmt;
   return (
   <Card className="p-5 sm:p-6 bg-white border border-slate-200 shadow-lg flex items-center justify-between gap-4">
     <div className="shrink-0 w-10 h-10 sm:w-14 sm:h-14 bg-blue-50 rounded-2xl text-blue-500 flex items-center justify-center shadow-sm"><Activity size={30} /></div>
     <div className="min-w-0 flex-1">
+      <div className="mb-2 flex flex-wrap items-center gap-2">
+        <button type="button" onClick={() => setIsHospitalPlanApplied(true)} className={`px-3 py-1 rounded-lg text-[11px] sm:text-xs font-extrabold border ${isHospitalPlanApplied ? 'bg-blue-500 text-white border-blue-500' : 'bg-white text-slate-600 border-slate-200'}`}>反映済</button>
+        <button type="button" onClick={() => setIsHospitalPlanApplied(false)} className={`px-3 py-1 rounded-lg text-[11px] sm:text-xs font-extrabold border ${!isHospitalPlanApplied ? 'bg-slate-700 text-white border-slate-700' : 'bg-white text-slate-600 border-slate-200'}`}>未反映</button>
+      </div>
       <div className="text-[11px] sm:text-sm font-bold text-slate-600 leading-tight mb-2 space-y-1">
         <div>レンタル・特価見込み総額: ¥{yenK(baseAmt)}千円</div>
-        <div>入退院予定者: {hospitalPlanSign}¥{Math.abs(hospitalPlanAmt).toLocaleString()}円</div>
+        <div>入退院（予定）: {hospitalPlanSign}¥{Math.abs(hospitalPlanAmt).toLocaleString()}円</div>
       </div>
-      <h3 className="text-2xl sm:text-5xl font-bold text-slate-800 leading-none truncate">¥{yenK(totalAmt)}千円</h3>
+      <h3 className="text-2xl sm:text-5xl font-bold text-slate-800 leading-none truncate">受注残合計¥{yenK(displayAmt)}千円</h3>
     </div>
   </Card>
   );
@@ -621,7 +629,7 @@ const NewEntryForm = React.memo(({ salespersons, onSubmit, selectedStaffId, onSt
   const [showHospitalPlanNote, setShowHospitalPlanNote] = useState(false);
   const rentalWithBilling = RENTAL_CATEGORIES.includes(data.category) && data.category !== '特価ベッド';
   const isOtherSalesCategory = OTHER_SALES_CATS.includes(data.category);
-  const isHospitalPlanCategory = data.category === HOSPITAL_PLAN_CATEGORY;
+  const isHospitalPlanCategory = isHospitalPlanCategoryName(data.category);
   const primaryCategories = useMemo(() => allCategories.filter((c) => !OTHER_SALES_CATS.includes(c)), []);
   const optionalCategories = OTHER_SALES_CATS;
   const categoryButtonClass = useCallback((category) => `min-h-[74px] sm:min-h-[88px] flex items-center justify-center py-3 sm:py-4 px-1 rounded-xl font-bold text-[10px] sm:text-sm border-2 transition-all ${data.category === category ? 'bg-blue-500 border-blue-500 text-white shadow-lg scale-105' : 'bg-white border-slate-200 text-slate-700 hover:border-blue-400'}`, [data.category]);
@@ -685,13 +693,13 @@ const NewEntryForm = React.memo(({ salespersons, onSubmit, selectedStaffId, onSt
             {isHospitalPlanCategory && (
               <div className="mt-2">
                 <button type="button" onClick={() => setShowHospitalPlanNote((open) => !open)} className="w-fit max-w-full rounded-lg border border-amber-200 bg-amber-50 px-3 py-1.5 text-[11px] font-extrabold text-amber-800 flex items-center gap-2 hover:bg-amber-100">
-                  <span>入退院予定者の入力について</span>
+                  <span>入退院（予定）の入力について</span>
                   <span className="text-sm leading-none">{showHospitalPlanNote ? '▲' : '▼'}</span>
                 </button>
                 {showHospitalPlanNote && (
                   <div className="mt-1.5 w-fit max-w-full rounded-lg border border-amber-200 bg-white px-3 py-2 text-[11px] sm:text-xs font-bold leading-relaxed text-amber-800">
-                    <div>入院予定: 15日以前は半月分のマイナス金額を記入、16日以降は登録不要。</div>
-                    <div>退院予定: 15日以前は月額、16日以降は半月分の金額を入力。</div>
+                    <div>15日以前の入院（予定）登録は、半月分のマイナス金額を記入。16日以降は登録不要。</div>
+                    <div>15日以前の退院（予定）登録は、月額。16日以降は半月分の金額を入力。</div>
                   </div>
                 )}
               </div>
@@ -738,7 +746,7 @@ const OrderRow = React.memo(({ order, onUpdate, onDelete, salespersons = [] }) =
                 {salespersons.map((staff) => <option key={staff.id} value={staff.id}>{staff.name}</option>)}
               </select>
             )}
-            <select value={order.category} onChange={(e) => onUpdate(order.id, 'category', e.target.value)} className="text-[9px] font-bold text-blue-600 bg-blue-50 border border-blue-100 rounded px-1 py-0.5 appearance-none text-center shadow-sm">
+            <select value={isHospitalPlanCategoryName(order.category) ? HOSPITAL_PLAN_CATEGORY : order.category} onChange={(e) => onUpdate(order.id, 'category', e.target.value)} className="text-[9px] font-bold text-blue-600 bg-blue-50 border border-blue-100 rounded px-1 py-0.5 appearance-none text-center shadow-sm">
               {allCategories.map((c) => <option key={c}>{c}</option>)}
             </select>
           </div>
@@ -764,7 +772,7 @@ const OrderRow = React.memo(({ order, onUpdate, onDelete, salespersons = [] }) =
         )}
       </td>
       <td className="py-1 px-2 w-[14%] text-right font-bold text-blue-500 text-sm"><AutoSaveInput type="number" value={order.amount} saveId={order.id} saveField="amount" onSave={onUpdate} className="w-full bg-transparent text-right outline-none px-1 py-0.5" /></td>
-      <td className="py-1 px-2 w-[12%] text-center"><select value={order.status} onChange={(e) => onUpdate(order.id, 'status', e.target.value)} className={`text-[11px] font-bold rounded px-1.5 py-0.5 shadow-sm appearance-none text-center ${isCompletedStatus(order.status) ? 'bg-emerald-500 text-white' : 'bg-slate-200 text-slate-700 border border-slate-300'}`}>{getStatusesByCategory(order.category).map((s) => <option key={s}>{s}</option>)}</select></td>
+      <td className="py-1 px-2 w-[12%] text-center"><select value={order.status === '入院予定' ? '入院（予定）' : order.status === '退院予定' ? '退院（予定）' : order.status} onChange={(e) => onUpdate(order.id, 'status', e.target.value)} className={`text-[11px] font-bold rounded px-1.5 py-0.5 shadow-sm appearance-none text-center ${isCompletedStatus(order.status) ? 'bg-emerald-500 text-white' : 'bg-slate-200 text-slate-700 border border-slate-300'}`}>{getStatusesByCategory(order.category).map((s) => <option key={s}>{s}</option>)}</select></td>
       <td className="py-1 px-2 w-[7%] text-center align-middle"><div className="flex flex-col items-center justify-center"><span className="text-[9px] font-bold text-slate-600 leading-none mb-0.5">前月</span><input type="checkbox" checked={Boolean(order.isMoveToPrevious)} onChange={(e) => onUpdate(order.id, 'isMoveToPrevious', e.target.checked)} className="w-4 h-4 rounded text-indigo-500 cursor-pointer" /></div></td>
       <td className="py-1 px-2 w-[7%] text-center align-middle"><div className="flex flex-col items-center justify-center"><span className="text-[9px] font-bold text-slate-600 leading-none mb-0.5">次月</span><input type="checkbox" checked={Boolean(order.isCarryOver)} onChange={(e) => onUpdate(order.id, 'isCarryOver', e.target.checked)} className="w-4 h-4 rounded text-blue-400 cursor-pointer" /></div></td>
       <td className="py-1 px-2 w-[5%] text-right"><button onClick={() => onDelete(order.id)} className="text-slate-500 hover:text-red-500 transition-all p-1"><Trash2 size={16} /></button></td>
@@ -777,8 +785,9 @@ const OrderTable = React.memo(({ items, onUpdate, onDelete, salespersons = [], s
   const groupedItems = useMemo(() => {
     const map = {};
     for (const o of items) {
-      if (!map[o.category]) map[o.category] = [];
-      map[o.category].push(o);
+      const groupCategory = isHospitalPlanCategoryName(o.category) ? HOSPITAL_PLAN_CATEGORY : o.category;
+      if (!map[groupCategory]) map[groupCategory] = [];
+      map[groupCategory].push(o);
     }
     return map;
   }, [items]);
@@ -790,12 +799,12 @@ const OrderTable = React.memo(({ items, onUpdate, onDelete, salespersons = [], s
       {displayCategories.map((cat) => {
         const list = groupedItems[cat] || [];
         if (!list.length && !onAddCategory) return null;
-        const categoryTotal = list.reduce((s, o) => s + (cat === HOSPITAL_PLAN_CATEGORY ? getHospitalPlanBacklogAmount(o) : Number(o.amount || 0)), 0);
+        const categoryTotal = list.reduce((s, o) => s + (isHospitalPlanCategoryName(cat) ? getHospitalPlanBacklogAmount(o) : Number(o.amount || 0)), 0);
         return (
           <div key={cat} className="bg-white border border-slate-200 shadow-sm rounded-xl overflow-hidden">
             <div className={`px-4 py-2 flex justify-between items-center font-bold text-xs uppercase tracking-widest ${RENTAL_CATEGORIES.includes(cat) ? 'bg-slate-800' : 'bg-slate-900'} text-white`}>
               <div className="flex items-center gap-2 shrink-0"><div className="w-1 h-4 bg-blue-400 rounded-full" /><span>{cat === '特定福祉用具販売' ? '特定福祉用具' : cat}</span></div>
-              <span className="font-bold opacity-95 text-sm ml-4 truncate">{cat === HOSPITAL_PLAN_CATEGORY ? '受注残 ' : '¥'}{categoryTotal.toLocaleString()}{cat === HOSPITAL_PLAN_CATEGORY ? '円' : ''}</span>
+              <span className="font-bold opacity-95 text-sm ml-4 truncate">{isHospitalPlanCategoryName(cat) ? '受注残 ' : '¥'}{categoryTotal.toLocaleString()}{isHospitalPlanCategoryName(cat) ? '円' : ''}</span>
             </div>
             <div className="overflow-x-auto">
               <table className="w-full text-left table-fixed min-w-[820px]">
@@ -1162,9 +1171,9 @@ const PdfPrintBacklogCard = ({ totalAmt, baseAmt = totalAmt, hospitalPlanAmt = 0
   <div style={{ padding: '1.5mm 2mm 3mm', marginBottom: '4mm', minHeight: '14mm', display: 'grid', gridTemplateColumns: '1fr 46mm', alignItems: 'center', boxSizing: 'border-box' }}>
     <div style={{ fontSize: '9px', fontWeight: 950, color: '#475569', letterSpacing: 0, lineHeight: 1.25 }}>
       <div>レンタル・特価見込総額: ¥{yenK(baseAmt)}千円</div>
-      <div>入退院予定者: {hospitalPlanAmt >= 0 ? '+' : '-'}¥{Math.abs(hospitalPlanAmt).toLocaleString()}円</div>
+      <div>入退院（予定）: {hospitalPlanAmt >= 0 ? '+' : '-'}¥{Math.abs(hospitalPlanAmt).toLocaleString()}円</div>
     </div>
-    <div style={{ height: '10mm', textAlign: 'center', fontSize: '23px', fontWeight: 950, color: '#0f172a', lineHeight: 1, display: 'grid', placeItems: 'center', boxSizing: 'border-box' }}>¥{yenK(totalAmt)}千円</div>
+    <div style={{ height: '10mm', textAlign: 'center', fontSize: '20px', fontWeight: 950, color: '#0f172a', lineHeight: 1, display: 'grid', placeItems: 'center', boxSizing: 'border-box' }}>受注残合計¥{yenK(totalAmt)}千円</div>
   </div>
 );
 
@@ -1689,7 +1698,7 @@ const MainApp = ({ branchSetting }) => {
     if (field === 'hospitalPlanDayType') updateData.hospitalPlanAmountMode = null;
     if (field === 'amount') {
       const order = orders.find((item) => item.id === id);
-      if (order?.category === HOSPITAL_PLAN_CATEGORY) updateData.hospitalPlanAmountMode = null;
+      if (isHospitalPlanCategoryName(order?.category)) updateData.hospitalPlanAmountMode = null;
     }
     if (field === 'isCarryOver' && value) updateData.isMoveToPrevious = false;
     if (field === 'isMoveToPrevious' && value) updateData.isCarryOver = false;
@@ -1841,7 +1850,7 @@ const MainApp = ({ branchSetting }) => {
           target.doneAmt += amt;
         }
       }
-      if (o.category === HOSPITAL_PLAN_CATEGORY) {
+      if (isHospitalPlanCategoryName(o.category)) {
         const hospitalPlanAmt = getHospitalPlanBacklogAmount(o);
         summary.hospitalPlanBacklogAmt += hospitalPlanAmt;
         summary.rentalBacklogTotalAmt += hospitalPlanAmt;
@@ -1878,7 +1887,7 @@ const MainApp = ({ branchSetting }) => {
       if (!stats) continue;
       const amt = Number(o.amount || 0);
       const done = isCompletedStatus(o.status);
-      if (o.category === HOSPITAL_PLAN_CATEGORY) {
+      if (isHospitalPlanCategoryName(o.category)) {
         const hospitalPlanAmt = getHospitalPlanBacklogAmount(o);
         stats.hospitalPlanBacklogAmt += hospitalPlanAmt;
         stats.rentalBacklogTotalAmt += hospitalPlanAmt;
@@ -2159,7 +2168,7 @@ const MasterSetupStatusCard = ({ isConfirmed, staffCount, onConfirm }) => (
   </Card>
 );
 
-const CategoryFilter = ({ items, selected, onSelect }) => <div className="flex flex-wrap gap-2 bg-slate-50 p-2 rounded-xl items-center shadow-inner"><span className="text-xs font-bold text-slate-700 whitespace-nowrap bg-white px-2 py-1 rounded shadow-sm border border-slate-200">カテゴリ</span><button onClick={() => onSelect('すべて')} className={`text-xs font-bold px-4 py-1.5 rounded-lg shadow-sm ${selected === 'すべて' ? 'bg-blue-500 text-white' : 'bg-white text-slate-700 border border-slate-200'}`}>すべて表示</button>{allCategories.map((cat) => items.some((o) => o.category === cat) ? <button key={cat} onClick={() => onSelect(cat)} className={`text-xs font-bold px-4 py-1.5 rounded-lg shadow-sm ${selected === cat ? 'bg-blue-500 text-white' : 'bg-white text-slate-700 border border-slate-200'}`}>{cat === '特定福祉用具販売' ? '特定福祉用具' : cat}</button> : null)}</div>;
+const CategoryFilter = ({ items, selected, onSelect }) => <div className="flex flex-wrap gap-2 bg-slate-50 p-2 rounded-xl items-center shadow-inner"><span className="text-xs font-bold text-slate-700 whitespace-nowrap bg-white px-2 py-1 rounded shadow-sm border border-slate-200">カテゴリ</span><button onClick={() => onSelect('すべて')} className={`text-xs font-bold px-4 py-1.5 rounded-lg shadow-sm ${selected === 'すべて' ? 'bg-blue-500 text-white' : 'bg-white text-slate-700 border border-slate-200'}`}>すべて表示</button>{allCategories.map((cat) => items.some((o) => isHospitalPlanCategoryName(cat) ? isHospitalPlanCategoryName(o.category) : o.category === cat) ? <button key={cat} onClick={() => onSelect(cat)} className={`text-xs font-bold px-4 py-1.5 rounded-lg shadow-sm ${selected === cat ? 'bg-blue-500 text-white' : 'bg-white text-slate-700 border border-slate-200'}`}>{cat === '特定福祉用具販売' ? '特定福祉用具' : cat}</button> : null)}</div>;
 
 const ListToolbar = ({ currentYear, currentMonthNum, currentMonth, setCurrentMonth }) => <div className="flex items-center justify-between bg-white p-3 rounded-xl border border-slate-100 shadow-sm"><div className="flex items-center gap-4"><div className="bg-blue-500 text-white px-4 py-1.5 rounded-lg font-bold text-sm shadow-sm">表示中</div><h2 className="text-xl font-bold text-slate-800">{currentYear}年{currentMonthNum}月 <span className="text-slate-600 font-bold ml-1 text-sm">の受注残</span></h2></div><div className="flex items-center gap-2"><button onClick={() => setCurrentMonth(getOffsetMonth(currentMonth, -1))} className="p-2 hover:bg-slate-50 rounded-lg text-slate-600 flex items-center gap-1 font-bold text-sm"><RotateCcw size={16} className="-scale-x-100" />前月</button><button onClick={() => { const now = new Date(); setCurrentMonth(`${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`); }} className="px-3 py-2 bg-slate-50 hover:bg-slate-100 rounded-lg text-slate-700 font-bold text-xs">今月</button><button onClick={() => setCurrentMonth(getOffsetMonth(currentMonth, 1))} className="p-2 hover:bg-slate-50 rounded-lg text-slate-600 flex items-center gap-1 font-bold text-sm">次月 <RotateCcw size={16} className="rotate-180" /></button></div></div>;
 
@@ -2407,7 +2416,7 @@ const addOrderToSummary = (summary, order) => {
       target.doneAmt += amount;
     }
   }
-  if (order.category === HOSPITAL_PLAN_CATEGORY) {
+  if (isHospitalPlanCategoryName(order.category)) {
     const hospitalPlanAmt = getHospitalPlanBacklogAmount(order);
     summary.hospitalPlanBacklogAmt += hospitalPlanAmt;
     summary.rentalBacklogTotalAmt += hospitalPlanAmt;
