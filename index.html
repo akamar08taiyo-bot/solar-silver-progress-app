@@ -681,7 +681,7 @@ const NewEntryForm = React.memo(({ salespersons, onSubmit, selectedStaffId, onSt
           <Field label="担当者"><select value={selectedStaffId} onChange={(e) => onStaffChange(Number(e.target.value))} className="field-input text-lg">{salespersons.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}</select></Field>
           <Field label={isOtherSalesCategory ? '施設・病院名（一般利用者含む）' : '利用者様名'}><input value={data.customerName} onChange={(e) => setData({ ...data, customerName: e.target.value })} placeholder={isOtherSalesCategory ? '施設・病院名など' : 'お名前'} className="field-input text-lg" {...JAPANESE_TEXT_INPUT_PROPS} /></Field>
           {isHospitalPlanCategory && (
-            <div className="sm:col-span-2 lg:col-span-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] sm:text-xs font-bold leading-relaxed text-amber-800">
+            <div className="w-fit max-w-full rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] sm:text-xs font-bold leading-relaxed text-amber-800">
               <div>入院予定: 15日以前は半月分、16日以降は記入不要。</div>
               <div>退院予定: 15日以前は月額、16日以降は半月分の金額を入力。</div>
             </div>
