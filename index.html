@@ -555,10 +555,10 @@ const BacklogTotalCard = ({ totalAmt, baseAmt = totalAmt, hospitalPlanAmt = 0 })
   <Card className="p-5 sm:p-6 bg-white border border-slate-200 shadow-lg flex items-center justify-between gap-4">
     <div className="shrink-0 w-10 h-10 sm:w-14 sm:h-14 bg-blue-50 rounded-2xl text-blue-500 flex items-center justify-center shadow-sm"><Activity size={30} /></div>
     <div className="min-w-0 flex-1">
-      <div className="text-[10px] sm:text-sm font-bold text-slate-600 uppercase leading-tight mb-2 tracking-widest">
-        受注残合計 (レンタル・特価見込み総額) + 入院予定者（退院予定者） {hospitalPlanSign}¥{Math.abs(hospitalPlanAmt).toLocaleString()}円
+      <div className="text-[11px] sm:text-sm font-bold text-slate-600 leading-tight mb-2 space-y-1">
+        <div>レンタル・特価見込み総額: ¥{yenK(baseAmt)}千円</div>
+        <div>入退院予定者: {hospitalPlanSign}¥{Math.abs(hospitalPlanAmt).toLocaleString()}円</div>
       </div>
-      <div className="text-[10px] sm:text-xs font-bold text-slate-500 leading-tight mb-2">レンタル・特価見込み総額 ¥{yenK(baseAmt)}千円</div>
       <h3 className="text-2xl sm:text-5xl font-bold text-slate-800 leading-none truncate">¥{yenK(totalAmt)}千円</h3>
     </div>
   </Card>
@@ -720,7 +720,6 @@ const Field = ({ label, children }) => (
 const OrderRow = React.memo(({ order, onUpdate, onDelete, salespersons = [] }) => {
   const canMarkApplying = APPLICATION_MARK_CATEGORIES.includes(order.category);
   const isOtherSalesCategory = OTHER_SALES_CATS.includes(order.category);
-  const isHospitalPlanCategory = order.category === HOSPITAL_PLAN_CATEGORY;
   const changeBilling = async (billingType) => {
     if (order.billingType === billingType) return;
     const amount = Number(order.amount || 0);
@@ -748,14 +747,6 @@ const OrderRow = React.memo(({ order, onUpdate, onDelete, salespersons = [] }) =
       </td>
       <td className="py-1 px-2 w-[17%]">{isOtherSalesCategory ? <span className="block text-xs text-slate-400 font-bold px-1 py-0.5">対象外</span> : <AutoSaveInput value={order.careHomeName} saveId={order.id} saveField="careHomeName" placeholder="事業所名" onSave={onUpdate} className="w-full bg-transparent border-none outline-none text-xs text-slate-600 font-bold px-1 py-0.5 focus:bg-white focus:rounded" />}</td>
       <td className="py-1 px-2 w-[12%] text-center">
-        {isHospitalPlanCategory && (
-          <div className="flex flex-col items-center gap-1">
-            <span className="text-[9px] font-extrabold text-slate-500 leading-none whitespace-nowrap">金額で調整</span>
-            <span className={`text-[9px] font-extrabold leading-none whitespace-nowrap ${getHospitalPlanBacklogAmount(order) < 0 ? 'text-red-600' : 'text-blue-600'}`}>
-              受注残 {getHospitalPlanBacklogAmount(order).toLocaleString()}円
-            </span>
-          </div>
-        )}
         {RENTAL_CATEGORIES.includes(order.category) && order.category !== '特価ベッド' && (
           <div className="flex flex-col items-center gap-1">
             <div className="flex items-center justify-center bg-slate-50 rounded-lg p-0.5 border border-slate-100">
@@ -1170,8 +1161,8 @@ const buildPdfCardPages = (branchSummary, branchTotalPersonDetailedSummary) => {
 const PdfPrintBacklogCard = ({ totalAmt, baseAmt = totalAmt, hospitalPlanAmt = 0 }) => (
   <div style={{ padding: '1.5mm 2mm 3mm', marginBottom: '4mm', minHeight: '14mm', display: 'grid', gridTemplateColumns: '1fr 46mm', alignItems: 'center', boxSizing: 'border-box' }}>
     <div style={{ fontSize: '9px', fontWeight: 950, color: '#475569', letterSpacing: 0, lineHeight: 1.25 }}>
-      <div>受注残合計（レンタル・特価見込総額）+ 入院予定者（退院予定者） {hospitalPlanAmt >= 0 ? '+' : '-'}¥{Math.abs(hospitalPlanAmt).toLocaleString()}円</div>
-      <div style={{ color: '#64748b', fontSize: '8px' }}>レンタル・特価見込総額 ¥{yenK(baseAmt)}千円</div>
+      <div>レンタル・特価見込総額: ¥{yenK(baseAmt)}千円</div>
+      <div>入退院予定者: {hospitalPlanAmt >= 0 ? '+' : '-'}¥{Math.abs(hospitalPlanAmt).toLocaleString()}円</div>
     </div>
     <div style={{ height: '10mm', textAlign: 'center', fontSize: '23px', fontWeight: 950, color: '#0f172a', lineHeight: 1, display: 'grid', placeItems: 'center', boxSizing: 'border-box' }}>¥{yenK(totalAmt)}千円</div>
   </div>
