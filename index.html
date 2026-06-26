@@ -564,11 +564,13 @@ const BacklogTotalCard = ({ totalAmt, baseAmt = totalAmt, hospitalPlanAmt = 0 })
         <button type="button" onClick={() => setIsHospitalPlanApplied(true)} className={`px-3 py-1 rounded-lg text-[11px] sm:text-xs font-extrabold border ${isHospitalPlanApplied ? 'bg-blue-500 text-white border-blue-500' : 'bg-white text-slate-600 border-slate-200'}`}>反映済</button>
         <button type="button" onClick={() => setIsHospitalPlanApplied(false)} className={`px-3 py-1 rounded-lg text-[11px] sm:text-xs font-extrabold border ${!isHospitalPlanApplied ? 'bg-slate-700 text-white border-slate-700' : 'bg-white text-slate-600 border-slate-200'}`}>未反映</button>
       </div>
-      <div className="text-[11px] sm:text-sm font-bold text-slate-600 leading-tight mb-2 space-y-1">
-        <div>レンタル・特価見込み総額: ¥{yenK(baseAmt)}千円</div>
-        <div>入退院（予定）: {hospitalPlanSign}¥{Math.abs(hospitalPlanAmt).toLocaleString()}円</div>
+      <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-5 mb-1">
+        <div className="text-[11px] sm:text-sm font-bold text-slate-600 leading-tight space-y-1">
+          <div>レンタル・特価見込み総額: ¥{yenK(baseAmt)}千円</div>
+          <div>入退院（予定）: {hospitalPlanSign}¥{Math.abs(hospitalPlanAmt).toLocaleString()}円</div>
+        </div>
+        <div className="text-lg sm:text-2xl font-extrabold text-slate-800 leading-none whitespace-nowrap">受注残合計¥{yenK(displayAmt)}千円</div>
       </div>
-      <h3 className="text-2xl sm:text-5xl font-bold text-slate-800 leading-none truncate">受注残合計¥{yenK(displayAmt)}千円</h3>
     </div>
   </Card>
   );
