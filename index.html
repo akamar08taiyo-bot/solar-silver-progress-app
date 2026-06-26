@@ -164,7 +164,7 @@ const isCompletedStatus = (status) => status === '確定済' || status === '売�
 const isHospitalPlanCategoryName = (category) => category === HOSPITAL_PLAN_CATEGORY || category === HOSPITAL_PLAN_LEGACY_CATEGORY;
 const getHospitalPlanBacklogAmount = (order) => {
   if (!isHospitalPlanCategoryName(order?.category)) return 0;
-  if (order.isHospitalPlanReflected === false) return 0;
+  if (order.isHospitalPlanReflected === true) return 0;
   const amount = Number(order.amount || 0);
   if (order.hospitalPlanAmountMode === 'adjusted') {
     if (order.status === '入院予定' || order.status === '入院（予定）') return -amount;
@@ -554,15 +554,15 @@ const BranchSummaryCards = ({ summary, staffBreakdown = [], openMap = {}, onTogg
 
 const BacklogTotalCard = ({ totalAmt, baseAmt = totalAmt, hospitalPlanAmt = 0 }) => {
   const hospitalPlanSign = hospitalPlanAmt >= 0 ? '+' : '-';
-  const [isHospitalPlanApplied, setIsHospitalPlanApplied] = useState(true);
-  const displayAmt = isHospitalPlanApplied ? totalAmt : baseAmt;
+  const [showUnreflectedHospitalPlan, setShowUnreflectedHospitalPlan] = useState(true);
+  const displayAmt = showUnreflectedHospitalPlan ? totalAmt : baseAmt;
   return (
   <Card className="p-5 sm:p-6 bg-white border border-slate-200 shadow-lg flex items-center justify-between gap-4">
     <div className="shrink-0 w-10 h-10 sm:w-14 sm:h-14 bg-blue-50 rounded-2xl text-blue-500 flex items-center justify-center shadow-sm"><Activity size={30} /></div>
     <div className="min-w-0 flex-1">
       <div className="mb-2 flex flex-wrap items-center gap-2">
-        <button type="button" onClick={() => setIsHospitalPlanApplied(true)} className={`px-3 py-1 rounded-lg text-[11px] sm:text-xs font-extrabold border ${isHospitalPlanApplied ? 'bg-blue-500 text-white border-blue-500' : 'bg-white text-slate-600 border-slate-200'}`}>反映済</button>
-        <button type="button" onClick={() => setIsHospitalPlanApplied(false)} className={`px-3 py-1 rounded-lg text-[11px] sm:text-xs font-extrabold border ${!isHospitalPlanApplied ? 'bg-slate-700 text-white border-slate-700' : 'bg-white text-slate-600 border-slate-200'}`}>未反映</button>
+        <button type="button" onClick={() => setShowUnreflectedHospitalPlan(false)} className={`px-3 py-1 rounded-lg text-[11px] sm:text-xs font-extrabold border ${!showUnreflectedHospitalPlan ? 'bg-blue-500 text-white border-blue-500' : 'bg-white text-slate-600 border-slate-200'}`}>反映済</button>
+        <button type="button" onClick={() => setShowUnreflectedHospitalPlan(true)} className={`px-3 py-1 rounded-lg text-[11px] sm:text-xs font-extrabold border ${showUnreflectedHospitalPlan ? 'bg-slate-700 text-white border-slate-700' : 'bg-white text-slate-600 border-slate-200'}`}>未反映</button>
       </div>
       <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-5 mb-1">
         <div className="text-[11px] sm:text-sm font-bold text-slate-600 leading-tight space-y-1">
@@ -784,7 +784,7 @@ const OrderRow = React.memo(({ order, onUpdate, onDelete, salespersons = [] }) =
       <td className="py-1 px-2 w-[14%] text-right font-bold text-blue-500 text-sm"><AutoSaveInput type="number" value={order.amount} saveId={order.id} saveField="amount" onSave={onUpdate} className="w-full bg-transparent text-right outline-none px-1 py-0.5" /></td>
       <td className="py-1 px-2 w-[12%] text-center">
         {isHospitalPlanCategory ? (
-          <select value={order.isHospitalPlanReflected === false ? 'unreflected' : 'reflected'} onChange={(e) => onUpdate(order.id, 'isHospitalPlanReflected', e.target.value === 'reflected')} className={`text-[11px] font-bold rounded px-1.5 py-0.5 shadow-sm appearance-none text-center ${order.isHospitalPlanReflected === false ? 'bg-slate-200 text-slate-700 border border-slate-300' : 'bg-emerald-500 text-white'}`}>
+          <select value={order.isHospitalPlanReflected === true ? 'reflected' : 'unreflected'} onChange={(e) => onUpdate(order.id, 'isHospitalPlanReflected', e.target.value === 'reflected')} className={`text-[11px] font-bold rounded px-1.5 py-0.5 shadow-sm appearance-none text-center ${order.isHospitalPlanReflected === true ? 'bg-emerald-500 text-white' : 'bg-slate-200 text-slate-700 border border-slate-300'}`}>
             <option value="reflected">反映済</option>
             <option value="unreflected">未反映</option>
           </select>
@@ -1709,7 +1709,7 @@ const MainApp = ({ branchSetting }) => {
       if (!APPLICATION_MARK_CATEGORIES.includes(value)) updateData.isApplying = false;
       updateData.hospitalPlanDayType = null;
       updateData.hospitalPlanAmountMode = null;
-      updateData.isHospitalPlanReflected = isHospitalPlanCategoryName(value) ? true : null;
+      updateData.isHospitalPlanReflected = isHospitalPlanCategoryName(value) ? false : null;
     }
     if (field === 'careHomeName') {
       const order = orders.find((item) => item.id === id);
@@ -1730,7 +1730,7 @@ const MainApp = ({ branchSetting }) => {
     const newId = `order_${Date.now()}`;
     let finalAmount = Number(data.amount || 0);
     if (data.billingType === 'half') finalAmount = Math.floor(finalAmount / 2);
-    await setDoc(doc(db, ...basePath, 'orders', newId), { ...data, hospitalPlanDayType: null, hospitalPlanAmountMode: null, isHospitalPlanReflected: isHospitalPlanCategoryName(data.category) ? true : null, isApplying: false, isMoveToPrevious: false, targetMonth: currentMonth, salespersonId: entryStaffId, amount: finalAmount, createdAt: new Date().toISOString() });
+    await setDoc(doc(db, ...basePath, 'orders', newId), { ...data, hospitalPlanDayType: null, hospitalPlanAmountMode: null, isHospitalPlanReflected: isHospitalPlanCategoryName(data.category) ? false : null, isApplying: false, isMoveToPrevious: false, targetMonth: currentMonth, salespersonId: entryStaffId, amount: finalAmount, createdAt: new Date().toISOString() });
     showMessage('登録しました');
   }, [basePath, currentMonth, entryStaffId, showMessage]);
 
@@ -1751,7 +1751,7 @@ const MainApp = ({ branchSetting }) => {
       billingType: 'full',
       hospitalPlanDayType: null,
       hospitalPlanAmountMode: null,
-      isHospitalPlanReflected: isHospitalPlanCategoryName(category) ? true : null,
+      isHospitalPlanReflected: isHospitalPlanCategoryName(category) ? false : null,
       targetMonth: currentMonth,
       salespersonId: Number(targetStaffId),
       createdAt: new Date().toISOString()
