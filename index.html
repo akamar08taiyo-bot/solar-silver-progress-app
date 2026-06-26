@@ -569,7 +569,7 @@ const BacklogTotalCard = ({ totalAmt, baseAmt = totalAmt, hospitalPlanAmt = 0 })
           <div>レンタル・特価見込み総額: ¥{yenK(baseAmt)}千円</div>
           <div>入退院（予定）: {hospitalPlanSign}¥{Math.abs(hospitalPlanAmt).toLocaleString()}円</div>
         </div>
-        <div className="text-lg sm:text-2xl font-extrabold text-slate-800 leading-none whitespace-nowrap">受注残合計¥{yenK(displayAmt)}千円</div>
+        <div className="text-lg sm:text-2xl font-extrabold text-slate-800 leading-none whitespace-nowrap">受注残合計{yenK(displayAmt)}千円</div>
       </div>
     </div>
   </Card>
@@ -1192,7 +1192,7 @@ const PdfPrintBacklogCard = ({ totalAmt, baseAmt = totalAmt, hospitalPlanAmt = 0
       <div>レンタル・特価見込総額: ¥{yenK(baseAmt)}千円</div>
       <div>入退院（予定）: {hospitalPlanAmt >= 0 ? '+' : '-'}¥{Math.abs(hospitalPlanAmt).toLocaleString()}円</div>
     </div>
-    <div style={{ height: '10mm', textAlign: 'center', fontSize: '20px', fontWeight: 950, color: '#0f172a', lineHeight: 1, display: 'grid', placeItems: 'center', boxSizing: 'border-box' }}>受注残合計¥{yenK(totalAmt)}千円</div>
+    <div style={{ height: '10mm', textAlign: 'center', fontSize: '20px', fontWeight: 950, color: '#0f172a', lineHeight: 1, display: 'grid', placeItems: 'center', boxSizing: 'border-box' }}>受注残合計{yenK(totalAmt)}千円</div>
   </div>
 );
 
