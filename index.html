@@ -627,7 +627,7 @@ const SetupScreen = ({ onComplete }) => {
 };
 
 const NewEntryForm = React.memo(({ salespersons, onSubmit, selectedStaffId, onStaffChange }) => {
-  const [data, setData] = useState({ customerName: '', careHomeName: '', category: RENTAL_CATEGORIES[0], source: sources[0], amount: '', status: '未確定', isCarryOver: false, billingType: 'full' });
+  const [data, setData] = useState({ customerName: '', careHomeName: '', category: RENTAL_CATEGORIES[0], source: sources[0], amount: '', status: '未確定', isCarryOver: false, billingType: 'full', hospitalPlanDate: '' });
   const [showOptionalCategories, setShowOptionalCategories] = useState(() => localStorage.getItem('solar_silver_optional_categories_open') === 'true');
   const [showHospitalPlanNote, setShowHospitalPlanNote] = useState(false);
   const rentalWithBilling = RENTAL_CATEGORIES.includes(data.category) && data.category !== '特価ベッド';
@@ -655,7 +655,7 @@ const NewEntryForm = React.memo(({ salespersons, onSubmit, selectedStaffId, onSt
     e.preventDefault();
     if (!data.customerName.trim()) return;
     onSubmit(data);
-    setData((prev) => ({ ...prev, customerName: '', careHomeName: '', amount: '', isCarryOver: false }));
+    setData((prev) => ({ ...prev, customerName: '', careHomeName: '', amount: '', isCarryOver: false, hospitalPlanDate: '' }));
   };
 
   return (
@@ -709,6 +709,7 @@ const NewEntryForm = React.memo(({ salespersons, onSubmit, selectedStaffId, onSt
             )}
           </Field>
           <Field label="状態"><select value={data.status} onChange={(e) => setData({ ...data, status: e.target.value })} className="field-input text-base">{getStatusesByCategory(data.category).map((s) => <option key={s}>{s}</option>)}</select></Field>
+          {isHospitalPlanCategory && <Field label="入院退院日"><input type="date" value={data.hospitalPlanDate || ''} onChange={(e) => setData({ ...data, hospitalPlanDate: e.target.value })} className="field-input text-base" /></Field>}
           {!isOtherSalesCategory && <Field label="区分"><select value={data.source} onChange={(e) => setData({ ...data, source: e.target.value })} className="field-input text-base">{sources.map((s) => <option key={s}>{s}</option>)}</select></Field>}
           {!isOtherSalesCategory && <Field label="事業所名"><input value={data.careHomeName} onChange={(e) => setData({ ...data, careHomeName: e.target.value })} placeholder="居宅名など" className="field-input text-base" {...JAPANESE_TEXT_INPUT_PROPS} /></Field>}
         </div>
@@ -761,9 +762,12 @@ const OrderRow = React.memo(({ order, onUpdate, onDelete, salespersons = [] }) =
       <td className="py-1 px-2 w-[17%]">{isOtherSalesCategory ? <span className="block text-xs text-slate-400 font-bold px-1 py-0.5">対象外</span> : <AutoSaveInput value={order.careHomeName} saveId={order.id} saveField="careHomeName" placeholder="事業所名" onSave={onUpdate} className="w-full bg-transparent border-none outline-none text-xs text-slate-600 font-bold px-1 py-0.5 focus:bg-white focus:rounded" />}</td>
       <td className="py-1 px-2 w-[12%] text-center">
         {isHospitalPlanCategory && (
-          <select value={normalizedHospitalStatus} onChange={(e) => onUpdate(order.id, 'status', e.target.value)} className="text-[10px] font-bold text-slate-700 bg-white border border-slate-200 rounded px-2 py-1 shadow-sm appearance-none text-center">
-            {STATUS_HOSPITAL_PLAN.map((s) => <option key={s}>{s}</option>)}
-          </select>
+          <div className="flex flex-col items-center gap-1">
+            <select value={normalizedHospitalStatus} onChange={(e) => onUpdate(order.id, 'status', e.target.value)} className="text-[10px] font-bold text-slate-700 bg-white border border-slate-200 rounded px-2 py-1 shadow-sm appearance-none text-center">
+              {STATUS_HOSPITAL_PLAN.map((s) => <option key={s}>{s}</option>)}
+            </select>
+            <AutoSaveInput type="date" value={order.hospitalPlanDate || ''} saveId={order.id} saveField="hospitalPlanDate" onSave={onUpdate} className="w-[112px] text-[10px] font-bold text-slate-700 bg-white border border-slate-200 rounded px-1.5 py-1 outline-none shadow-sm" />
+          </div>
         )}
         {!isHospitalPlanCategory && RENTAL_CATEGORIES.includes(order.category) && order.category !== '特価ベッド' && (
           <div className="flex flex-col items-center gap-1">
@@ -1710,6 +1714,7 @@ const MainApp = ({ branchSetting }) => {
       updateData.hospitalPlanDayType = null;
       updateData.hospitalPlanAmountMode = null;
       updateData.isHospitalPlanReflected = isHospitalPlanCategoryName(value) ? false : null;
+      updateData.hospitalPlanDate = isHospitalPlanCategoryName(value) ? (order?.hospitalPlanDate || '') : null;
     }
     if (field === 'careHomeName') {
       const order = orders.find((item) => item.id === id);
@@ -1730,7 +1735,7 @@ const MainApp = ({ branchSetting }) => {
     const newId = `order_${Date.now()}`;
     let finalAmount = Number(data.amount || 0);
     if (data.billingType === 'half') finalAmount = Math.floor(finalAmount / 2);
-    await setDoc(doc(db, ...basePath, 'orders', newId), { ...data, hospitalPlanDayType: null, hospitalPlanAmountMode: null, isHospitalPlanReflected: isHospitalPlanCategoryName(data.category) ? false : null, isApplying: false, isMoveToPrevious: false, targetMonth: currentMonth, salespersonId: entryStaffId, amount: finalAmount, createdAt: new Date().toISOString() });
+    await setDoc(doc(db, ...basePath, 'orders', newId), { ...data, hospitalPlanDayType: null, hospitalPlanAmountMode: null, hospitalPlanDate: isHospitalPlanCategoryName(data.category) ? (data.hospitalPlanDate || '') : null, isHospitalPlanReflected: isHospitalPlanCategoryName(data.category) ? false : null, isApplying: false, isMoveToPrevious: false, targetMonth: currentMonth, salespersonId: entryStaffId, amount: finalAmount, createdAt: new Date().toISOString() });
     showMessage('登録しました');
   }, [basePath, currentMonth, entryStaffId, showMessage]);
 
@@ -1751,6 +1756,7 @@ const MainApp = ({ branchSetting }) => {
       billingType: 'full',
       hospitalPlanDayType: null,
       hospitalPlanAmountMode: null,
+      hospitalPlanDate: isHospitalPlanCategoryName(category) ? '' : null,
       isHospitalPlanReflected: isHospitalPlanCategoryName(category) ? false : null,
       targetMonth: currentMonth,
       salespersonId: Number(targetStaffId),
