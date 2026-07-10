@@ -174,6 +174,15 @@ const getHospitalPlanBacklogAmount = (order) => {
   return amount;
 };
 const yenK = (amount) => Math.floor(Number(amount || 0) / 1000).toLocaleString();
+const formatThousandAmount = (amount) => {
+  const value = Number(amount || 0) / 1000;
+  if (!Number.isFinite(value)) return '0';
+  return value.toLocaleString('ja-JP', { maximumFractionDigits: 1 });
+};
+const formatSignedThousandAmount = (amount) => {
+  const value = Number(amount || 0);
+  return `${value >= 0 ? '+' : '-'}${formatThousandAmount(Math.abs(value))}`;
+};
 const formatMonth = (month) => `${month.split('-')[0]}年${Number(month.split('-')[1])}月`;
 const createSourceCount = () => ({ 包括: 0, 居宅: 0, '退院/連携室': 0 });
 const formatSourceBreakdown = (sourceCount) => `包括:${sourceCount?.['包括'] || 0} 居宅:${sourceCount?.['居宅'] || 0} 連携室:${sourceCount?.['退院/連携室'] || 0}`;
@@ -348,7 +357,7 @@ const SectionHeader = ({ icon: Icon, title, subtitle }) => (
   </div>
 );
 
-const AutoSaveInput = React.memo(({ value, onSave, saveId, saveField, type = 'text', className = '', placeholder = '' }) => {
+const AutoSaveInput = React.memo(({ value, onSave, saveId, saveField, type = 'text', className = '', placeholder = '', step }) => {
   const [localVal, setLocalVal] = useState(value ?? (type === 'number' ? 0 : ''));
   const isEditing = useRef(false);
   const timerRef = useRef(null);
@@ -392,6 +401,7 @@ const AutoSaveInput = React.memo(({ value, onSave, saveId, saveField, type = 'te
       onBlur={onBlur}
       onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()}
       placeholder={placeholder}
+      step={step}
       {...(type === 'text' ? JAPANESE_TEXT_INPUT_PROPS : {})}
       className={className}
     />
@@ -553,7 +563,6 @@ const BranchSummaryCards = ({ summary, staffBreakdown = [], openMap = {}, onTogg
 );
 
 const BacklogTotalCard = ({ totalAmt, baseAmt = totalAmt, hospitalPlanAmt = 0 }) => {
-  const hospitalPlanSign = hospitalPlanAmt >= 0 ? '+' : '-';
   const [showUnreflectedHospitalPlan, setShowUnreflectedHospitalPlan] = useState(true);
   const displayAmt = showUnreflectedHospitalPlan ? totalAmt : baseAmt;
   return (
@@ -567,7 +576,7 @@ const BacklogTotalCard = ({ totalAmt, baseAmt = totalAmt, hospitalPlanAmt = 0 })
       <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-5 mb-1">
         <div className="text-[11px] sm:text-sm font-bold text-slate-600 leading-tight space-y-1">
           <div>レンタル・特価見込み総額: {yenK(baseAmt)}千円</div>
-          <div>入退院（予定）: {hospitalPlanSign}{Math.abs(hospitalPlanAmt).toLocaleString()}円</div>
+          <div>入退院（予定）: {formatSignedThousandAmount(hospitalPlanAmt)}千円</div>
         </div>
         <div className="text-lg sm:text-2xl font-extrabold text-slate-800 leading-none whitespace-nowrap">受注残合計{yenK(displayAmt)}千円</div>
       </div>
@@ -685,14 +694,14 @@ const NewEntryForm = React.memo(({ salespersons, onSubmit, selectedStaffId, onSt
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6 pt-6 border-t-2 border-slate-100">
           <Field label="担当者"><select value={selectedStaffId} onChange={(e) => onStaffChange(Number(e.target.value))} className="field-input text-lg">{salespersons.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}</select></Field>
           <Field label={isOtherSalesCategory ? '施設・病院名（一般利用者含む）' : '利用者様名'}><input value={data.customerName} onChange={(e) => setData({ ...data, customerName: e.target.value })} placeholder={isOtherSalesCategory ? '施設・病院名など' : 'お名前'} className="field-input text-lg" {...JAPANESE_TEXT_INPUT_PROPS} /></Field>
-          <Field label={RENTAL_CATEGORIES.includes(data.category) ? '金額' : '金額(税抜)'}>
+          <Field label={isHospitalPlanCategory ? '金額(千円)' : (RENTAL_CATEGORIES.includes(data.category) ? '金額' : '金額(税抜)')}>
             {rentalWithBilling && (
               <div className="absolute right-1 -top-4 flex flex-row flex-nowrap bg-slate-100 rounded-lg p-0.5 border border-slate-200 shadow-sm z-10">
                 {['full', 'half'].map((type) => <button key={type} type="button" onClick={() => setData({ ...data, billingType: type })} className={`h-6 min-w-[44px] px-3 text-xs font-bold rounded leading-none whitespace-nowrap ${data.billingType === type ? 'bg-white text-blue-500 shadow-sm' : 'text-slate-600'}`}>{type === 'full' ? '月額' : '半月'}</button>)}
               </div>
             )}
             {rentalWithBilling && <p className="mb-1 text-xs font-bold text-amber-700">別商品交換時は差額を入力</p>}
-            <input type="number" value={data.amount} onChange={(e) => setData({ ...data, amount: e.target.value })} placeholder="¥" className={`field-input ${isHospitalPlanCategory ? 'text-base' : 'text-2xl'}`} />
+            <input type="number" step={isHospitalPlanCategory ? '0.1' : undefined} value={data.amount} onChange={(e) => setData({ ...data, amount: e.target.value })} placeholder={isHospitalPlanCategory ? '千円' : '¥'} className={`field-input ${isHospitalPlanCategory ? 'text-base' : 'text-2xl'}`} />
             {isHospitalPlanCategory && (
               <div className="mt-2">
                 <button type="button" onClick={() => setShowHospitalPlanNote((open) => !open)} className="w-fit max-w-full rounded-lg border border-amber-200 bg-amber-50 px-3 py-1.5 text-[11px] font-extrabold text-amber-800 flex items-center gap-2 hover:bg-amber-100">
@@ -701,8 +710,8 @@ const NewEntryForm = React.memo(({ salespersons, onSubmit, selectedStaffId, onSt
                 </button>
                 {showHospitalPlanNote && (
                   <div className="mt-1.5 w-fit max-w-full rounded-lg border border-amber-200 bg-white px-3 py-2 text-[11px] sm:text-xs font-bold leading-relaxed text-amber-800">
-                    <div>15日以前の入院（予定）登録は、半月分のマイナス金額を記入。16日以降は登録不要。</div>
-                    <div>15日以前の退院（予定）登録は、月額。16日以降は半月分の金額を入力。</div>
+                    <div>15日以前の入院（予定）登録は、半月分のマイナス金額を千円単位で記入。16日以降は登録不要。</div>
+                    <div>15日以前の退院（予定）登録は、月額。16日以降は半月分の金額を千円単位で入力。</div>
                   </div>
                 )}
               </div>
@@ -734,6 +743,7 @@ const OrderRow = React.memo(({ order, onUpdate, onDelete, salespersons = [] }) =
   const isOtherSalesCategory = OTHER_SALES_CATS.includes(order.category);
   const isHospitalPlanCategory = isHospitalPlanCategoryName(order.category);
   const normalizedHospitalStatus = order.status === '入院予定' ? '入院（予定）' : order.status === '退院予定' ? '退院（予定）' : order.status;
+  const hospitalPlanAmountK = Number(order.amount || 0) / 1000;
   const changeBilling = async (billingType) => {
     if (order.billingType === billingType) return;
     const amount = Number(order.amount || 0);
@@ -785,7 +795,12 @@ const OrderRow = React.memo(({ order, onUpdate, onDelete, salespersons = [] }) =
           </label>
         )}
       </td>
-      <td className="py-1 px-2 w-[14%] text-right font-bold text-blue-500 text-sm"><AutoSaveInput type="number" value={order.amount} saveId={order.id} saveField="amount" onSave={onUpdate} className="w-full bg-transparent text-right outline-none px-1 py-0.5" /></td>
+      <td className="py-1 px-2 w-[14%] text-right font-bold text-blue-500 text-sm">
+        <div className="flex items-center justify-end gap-1">
+          <AutoSaveInput type="number" step={isHospitalPlanCategory ? '0.1' : undefined} value={isHospitalPlanCategory ? hospitalPlanAmountK : order.amount} saveId={order.id} saveField={isHospitalPlanCategory ? 'hospitalPlanAmountK' : 'amount'} onSave={onUpdate} className="w-full bg-transparent text-right outline-none px-1 py-0.5" placeholder={isHospitalPlanCategory ? '千円' : ''} />
+          {isHospitalPlanCategory && <span className="text-[10px] text-slate-500 shrink-0">千円</span>}
+        </div>
+      </td>
       <td className="py-1 px-2 w-[12%] text-center">
         {isHospitalPlanCategory ? (
           <select value={order.isHospitalPlanReflected === true ? 'reflected' : 'unreflected'} onChange={(e) => onUpdate(order.id, 'isHospitalPlanReflected', e.target.value === 'reflected')} className={`text-[11px] font-bold rounded px-1.5 py-0.5 shadow-sm appearance-none text-center ${order.isHospitalPlanReflected === true ? 'bg-emerald-500 text-white' : 'bg-slate-200 text-slate-700 border border-slate-300'}`}>
@@ -827,7 +842,7 @@ const OrderTable = React.memo(({ items, onUpdate, onDelete, salespersons = [], s
           <div key={cat} className="bg-white border border-slate-200 shadow-sm rounded-xl overflow-hidden">
             <div className={`px-4 py-2 flex justify-between items-center font-bold text-xs uppercase tracking-widest ${RENTAL_CATEGORIES.includes(cat) ? 'bg-slate-800' : 'bg-slate-900'} text-white`}>
               <div className="flex items-center gap-2 shrink-0"><div className="w-1 h-4 bg-blue-400 rounded-full" /><span>{cat === '特定福祉用具販売' ? '特定福祉用具' : cat}</span></div>
-              <span className="font-bold opacity-95 text-sm ml-4 truncate">{isHospitalPlanCategoryName(cat) ? '受注残 ' : '¥'}{categoryTotal.toLocaleString()}{isHospitalPlanCategoryName(cat) ? '円' : ''}</span>
+              <span className="font-bold opacity-95 text-sm ml-4 truncate">{isHospitalPlanCategoryName(cat) ? `受注残 ${formatThousandAmount(categoryTotal)}千円` : `¥${categoryTotal.toLocaleString()}`}</span>
             </div>
             <div className="overflow-x-auto">
               <table className="w-full text-left table-fixed min-w-[820px]">
@@ -1194,7 +1209,7 @@ const PdfPrintBacklogCard = ({ totalAmt, baseAmt = totalAmt, hospitalPlanAmt = 0
   <div style={{ padding: '1.5mm 2mm 3mm', marginBottom: '4mm', minHeight: '14mm', display: 'grid', gridTemplateColumns: '1fr 46mm', alignItems: 'center', boxSizing: 'border-box' }}>
     <div style={{ fontSize: '9px', fontWeight: 950, color: '#475569', letterSpacing: 0, lineHeight: 1.25 }}>
       <div>レンタル・特価見込総額: {yenK(baseAmt)}千円</div>
-      <div>入退院（予定）: {hospitalPlanAmt >= 0 ? '+' : '-'}{Math.abs(hospitalPlanAmt).toLocaleString()}円</div>
+      <div>入退院（予定）: {formatSignedThousandAmount(hospitalPlanAmt)}千円</div>
     </div>
     <div style={{ height: '10mm', textAlign: 'center', fontSize: '20px', fontWeight: 950, color: '#0f172a', lineHeight: 1, display: 'grid', placeItems: 'center', boxSizing: 'border-box' }}>受注残合計{yenK(totalAmt)}千円</div>
   </div>
@@ -1705,6 +1720,11 @@ const MainApp = ({ branchSetting }) => {
   }, [showMessage, updateStaffField]);
   const updateOrderField = useCallback(async (id, field, value) => {
     const updateData = { [field]: value };
+    if (field === 'hospitalPlanAmountK') {
+      updateData.amount = Number(value || 0) * 1000;
+      updateData.hospitalPlanAmountMode = null;
+      delete updateData.hospitalPlanAmountK;
+    }
     if (field === 'category') {
       updateData.status = getStatusesByCategory(value)[0];
       const order = orders.find((item) => item.id === id);
@@ -1734,7 +1754,8 @@ const MainApp = ({ branchSetting }) => {
   const handleEntrySubmit = useCallback(async (data) => {
     const newId = `order_${Date.now()}`;
     let finalAmount = Number(data.amount || 0);
-    if (data.billingType === 'half') finalAmount = Math.floor(finalAmount / 2);
+    if (isHospitalPlanCategoryName(data.category)) finalAmount *= 1000;
+    else if (data.billingType === 'half') finalAmount = Math.floor(finalAmount / 2);
     await setDoc(doc(db, ...basePath, 'orders', newId), { ...data, hospitalPlanDayType: null, hospitalPlanAmountMode: null, hospitalPlanDate: isHospitalPlanCategoryName(data.category) ? (data.hospitalPlanDate || '') : null, isHospitalPlanReflected: isHospitalPlanCategoryName(data.category) ? false : null, isApplying: false, isMoveToPrevious: false, targetMonth: currentMonth, salespersonId: entryStaffId, amount: finalAmount, createdAt: new Date().toISOString() });
     showMessage('登録しました');
   }, [basePath, currentMonth, entryStaffId, showMessage]);
