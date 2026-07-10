@@ -685,7 +685,7 @@ const NewEntryForm = React.memo(({ salespersons, onSubmit, selectedStaffId, onSt
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6 pt-6 border-t-2 border-slate-100">
           <Field label="担当者"><select value={selectedStaffId} onChange={(e) => onStaffChange(Number(e.target.value))} className="field-input text-lg">{salespersons.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}</select></Field>
           <Field label={isOtherSalesCategory ? '施設・病院名（一般利用者含む）' : '利用者様名'}><input value={data.customerName} onChange={(e) => setData({ ...data, customerName: e.target.value })} placeholder={isOtherSalesCategory ? '施設・病院名など' : 'お名前'} className="field-input text-lg" {...JAPANESE_TEXT_INPUT_PROPS} /></Field>
-          <Field label={RENTAL_CATEGORIES.includes(data.category) ? '金額' : '金額(税抜)'}>
+          <Field label={RENTAL_CATEGORIES.includes(data.category) ? '金額' : '金額(税抜)'} className={isHospitalPlanCategory ? 'sm:col-span-2 lg:col-span-3' : ''}>
             {rentalWithBilling && (
               <div className="absolute right-1 -top-4 flex flex-row flex-nowrap bg-slate-100 rounded-lg p-0.5 border border-slate-200 shadow-sm z-10">
                 {['full', 'half'].map((type) => <button key={type} type="button" onClick={() => setData({ ...data, billingType: type })} className={`h-6 min-w-[44px] px-3 text-xs font-bold rounded leading-none whitespace-nowrap ${data.billingType === type ? 'bg-white text-blue-500 shadow-sm' : 'text-slate-600'}`}>{type === 'full' ? '月額' : '半月'}</button>)}
@@ -722,8 +722,8 @@ const NewEntryForm = React.memo(({ salespersons, onSubmit, selectedStaffId, onSt
   );
 });
 
-const Field = ({ label, children }) => (
-  <div className="space-y-1.5 min-w-0 relative">
+const Field = ({ label, children, className = '' }) => (
+  <div className={`space-y-1.5 min-w-0 relative ${className}`}>
     <label className="text-[10px] font-extrabold text-blue-600 mb-1 block uppercase leading-none">{label}</label>
     {children}
   </div>
