@@ -183,6 +183,10 @@ const formatSignedThousandAmount = (amount) => {
   const value = Number(amount || 0);
   return `${value >= 0 ? '+' : '-'}${formatThousandAmount(Math.abs(value))}`;
 };
+const getTodayDateString = () => {
+  const date = new Date();
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+};
 const formatMonth = (month) => `${month.split('-')[0]}年${Number(month.split('-')[1])}月`;
 const createSourceCount = () => ({ 包括: 0, 居宅: 0, '退院/連携室': 0 });
 const formatSourceBreakdown = (sourceCount) => `包括:${sourceCount?.['包括'] || 0} 居宅:${sourceCount?.['居宅'] || 0} 連携室:${sourceCount?.['退院/連携室'] || 0}`;
@@ -742,6 +746,7 @@ const OrderRow = React.memo(({ order, onUpdate, onDelete, salespersons = [] }) =
   const isHospitalPlanCategory = isHospitalPlanCategoryName(order.category);
   const normalizedHospitalStatus = order.status === '入院予定' ? '入院（予定）' : order.status === '退院予定' ? '退院（予定）' : order.status;
   const hospitalPlanAmountK = Number(order.amount || 0) / 1000;
+  const completionDocumentSubmittedDate = order.completionDocumentSubmittedDate || getTodayDateString();
   const changeBilling = async (billingType) => {
     if (order.billingType === billingType) return;
     const amount = Number(order.amount || 0);
@@ -787,10 +792,16 @@ const OrderRow = React.memo(({ order, onUpdate, onDelete, salespersons = [] }) =
           </div>
         )}
         {!isHospitalPlanCategory && canMarkApplying && (
-          <label className={`inline-flex flex-col items-center justify-center gap-0.5 px-2 py-1 rounded-lg border cursor-pointer select-none ${order.isApplying ? 'bg-amber-50 border-amber-200 text-amber-700' : 'bg-slate-50 border-slate-100 text-slate-500'}`}>
-            <span className="text-[9px] font-extrabold leading-none whitespace-nowrap">申請中</span>
-            <input type="checkbox" checked={Boolean(order.isApplying)} onChange={(e) => onUpdate(order.id, 'isApplying', e.target.checked)} className="w-4 h-4 rounded text-amber-500 cursor-pointer" />
-          </label>
+          <div className="flex flex-col items-center gap-1">
+            <label className={`inline-flex flex-col items-center justify-center gap-0.5 px-2 py-1 rounded-lg border cursor-pointer select-none ${order.isApplying ? 'bg-amber-50 border-amber-200 text-amber-700' : 'bg-slate-50 border-slate-100 text-slate-500'}`}>
+              <span className="text-[9px] font-extrabold leading-none whitespace-nowrap">申請中</span>
+              <input type="checkbox" checked={Boolean(order.isApplying)} onChange={(e) => onUpdate(order.id, 'isApplying', e.target.checked)} className="w-4 h-4 rounded text-amber-500 cursor-pointer" />
+            </label>
+            <div className="flex flex-col items-center gap-0.5">
+              <span className="text-[8px] font-extrabold text-slate-500 leading-none whitespace-nowrap">完了書類提出日</span>
+              <AutoSaveInput type="date" value={completionDocumentSubmittedDate} saveId={order.id} saveField="completionDocumentSubmittedDate" onSave={onUpdate} className="w-[112px] text-[10px] font-bold text-slate-700 bg-white border border-slate-200 rounded px-1.5 py-1 outline-none shadow-sm" />
+            </div>
+          </div>
         )}
       </td>
       <td className="py-1 px-2 w-[14%] text-right font-bold text-blue-500 text-sm">
@@ -1747,6 +1758,7 @@ const MainApp = ({ branchSetting }) => {
       updateData.source = OTHER_SALES_CATS.includes(value) ? 'その他' : inferSourceFromCareHomeName(order?.careHomeName);
       if (OTHER_SALES_CATS.includes(value)) updateData.careHomeName = '';
       if (!APPLICATION_MARK_CATEGORIES.includes(value)) updateData.isApplying = false;
+      if (APPLICATION_MARK_CATEGORIES.includes(value)) updateData.completionDocumentSubmittedDate = order?.completionDocumentSubmittedDate || getTodayDateString();
       updateData.hospitalPlanDayType = null;
       updateData.hospitalPlanAmountMode = null;
       updateData.isHospitalPlanReflected = isHospitalPlanCategoryName(value) ? false : null;
@@ -1772,7 +1784,7 @@ const MainApp = ({ branchSetting }) => {
     let finalAmount = Number(data.amount || 0);
     if (isHospitalPlanCategoryName(data.category)) finalAmount *= 1000;
     else if (data.billingType === 'half') finalAmount = Math.floor(finalAmount / 2);
-    await setDoc(doc(db, ...basePath, 'orders', newId), { ...data, hospitalPlanDayType: null, hospitalPlanAmountMode: null, hospitalPlanDate: isHospitalPlanCategoryName(data.category) ? (data.hospitalPlanDate || '') : null, isHospitalPlanReflected: isHospitalPlanCategoryName(data.category) ? false : null, isApplying: false, isMoveToPrevious: false, targetMonth: currentMonth, salespersonId: entryStaffId, amount: finalAmount, createdAt: new Date().toISOString() });
+    await setDoc(doc(db, ...basePath, 'orders', newId), { ...data, hospitalPlanDayType: null, hospitalPlanAmountMode: null, hospitalPlanDate: isHospitalPlanCategoryName(data.category) ? (data.hospitalPlanDate || '') : null, isHospitalPlanReflected: isHospitalPlanCategoryName(data.category) ? false : null, completionDocumentSubmittedDate: APPLICATION_MARK_CATEGORIES.includes(data.category) ? getTodayDateString() : null, isApplying: false, isMoveToPrevious: false, targetMonth: currentMonth, salespersonId: entryStaffId, amount: finalAmount, createdAt: new Date().toISOString() });
     showMessage('登録しました');
   }, [basePath, currentMonth, entryStaffId, showMessage]);
 
@@ -1790,6 +1802,7 @@ const MainApp = ({ branchSetting }) => {
       isCarryOver: false,
       isMoveToPrevious: false,
       isApplying: false,
+      completionDocumentSubmittedDate: APPLICATION_MARK_CATEGORIES.includes(category) ? getTodayDateString() : null,
       billingType: 'full',
       hospitalPlanDayType: null,
       hospitalPlanAmountMode: null,
