@@ -361,7 +361,7 @@ const SectionHeader = ({ icon: Icon, title, subtitle }) => (
   </div>
 );
 
-const AutoSaveInput = React.memo(({ value, onSave, saveId, saveField, type = 'text', className = '', placeholder = '', step }) => {
+const AutoSaveInput = React.memo(({ value, onSave, saveId, saveField, type = 'text', className = '', placeholder = '', step, initialValueOnFocus }) => {
   const [localVal, setLocalVal] = useState(value ?? (type === 'number' ? 0 : ''));
   const isEditing = useRef(false);
   const timerRef = useRef(null);
@@ -397,12 +397,19 @@ const AutoSaveInput = React.memo(({ value, onSave, saveId, saveField, type = 'te
     save(localVal);
   };
 
+  const onFocus = () => {
+    if (localVal !== '' || initialValueOnFocus === undefined) return;
+    isEditing.current = true;
+    setLocalVal(typeof initialValueOnFocus === 'function' ? initialValueOnFocus() : initialValueOnFocus);
+  };
+
   return (
     <input
       type={type}
       value={localVal === 0 && type === 'number' ? '' : localVal}
       onChange={onChange}
       onBlur={onBlur}
+      onFocus={onFocus}
       onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()}
       placeholder={placeholder}
       step={step}
@@ -746,7 +753,7 @@ const OrderRow = React.memo(({ order, onUpdate, onDelete, salespersons = [] }) =
   const isHospitalPlanCategory = isHospitalPlanCategoryName(order.category);
   const normalizedHospitalStatus = order.status === '入院予定' ? '入院（予定）' : order.status === '退院予定' ? '退院（予定）' : order.status;
   const hospitalPlanAmountK = Number(order.amount || 0) / 1000;
-  const completionDocumentSubmittedDate = order.completionDocumentSubmittedDate || getTodayDateString();
+  const completionDocumentSubmittedDate = order.completionDocumentSubmittedDate || '';
   const changeBilling = async (billingType) => {
     if (order.billingType === billingType) return;
     const amount = Number(order.amount || 0);
@@ -799,7 +806,7 @@ const OrderRow = React.memo(({ order, onUpdate, onDelete, salespersons = [] }) =
             </label>
             <div className="flex flex-col items-center gap-0.5">
               <span className="text-[8px] font-extrabold text-slate-500 leading-none whitespace-nowrap">完了書類提出日</span>
-              <AutoSaveInput type="date" value={completionDocumentSubmittedDate} saveId={order.id} saveField="completionDocumentSubmittedDate" onSave={onUpdate} className="w-[112px] text-[10px] font-bold text-slate-700 bg-white border border-slate-200 rounded px-1.5 py-1 outline-none shadow-sm" />
+              <AutoSaveInput type="date" value={completionDocumentSubmittedDate} initialValueOnFocus={getTodayDateString} saveId={order.id} saveField="completionDocumentSubmittedDate" onSave={onUpdate} className="w-[112px] text-[10px] font-bold text-slate-700 bg-white border border-slate-200 rounded px-1.5 py-1 outline-none shadow-sm" />
             </div>
           </div>
         )}
@@ -1758,7 +1765,7 @@ const MainApp = ({ branchSetting }) => {
       updateData.source = OTHER_SALES_CATS.includes(value) ? 'その他' : inferSourceFromCareHomeName(order?.careHomeName);
       if (OTHER_SALES_CATS.includes(value)) updateData.careHomeName = '';
       if (!APPLICATION_MARK_CATEGORIES.includes(value)) updateData.isApplying = false;
-      if (APPLICATION_MARK_CATEGORIES.includes(value)) updateData.completionDocumentSubmittedDate = order?.completionDocumentSubmittedDate || getTodayDateString();
+      if (APPLICATION_MARK_CATEGORIES.includes(value)) updateData.completionDocumentSubmittedDate = order?.completionDocumentSubmittedDate || '';
       updateData.hospitalPlanDayType = null;
       updateData.hospitalPlanAmountMode = null;
       updateData.isHospitalPlanReflected = isHospitalPlanCategoryName(value) ? false : null;
@@ -1784,7 +1791,7 @@ const MainApp = ({ branchSetting }) => {
     let finalAmount = Number(data.amount || 0);
     if (isHospitalPlanCategoryName(data.category)) finalAmount *= 1000;
     else if (data.billingType === 'half') finalAmount = Math.floor(finalAmount / 2);
-    await setDoc(doc(db, ...basePath, 'orders', newId), { ...data, hospitalPlanDayType: null, hospitalPlanAmountMode: null, hospitalPlanDate: isHospitalPlanCategoryName(data.category) ? (data.hospitalPlanDate || '') : null, isHospitalPlanReflected: isHospitalPlanCategoryName(data.category) ? false : null, completionDocumentSubmittedDate: APPLICATION_MARK_CATEGORIES.includes(data.category) ? getTodayDateString() : null, isApplying: false, isMoveToPrevious: false, targetMonth: currentMonth, salespersonId: entryStaffId, amount: finalAmount, createdAt: new Date().toISOString() });
+    await setDoc(doc(db, ...basePath, 'orders', newId), { ...data, hospitalPlanDayType: null, hospitalPlanAmountMode: null, hospitalPlanDate: isHospitalPlanCategoryName(data.category) ? (data.hospitalPlanDate || '') : null, isHospitalPlanReflected: isHospitalPlanCategoryName(data.category) ? false : null, completionDocumentSubmittedDate: APPLICATION_MARK_CATEGORIES.includes(data.category) ? '' : null, isApplying: false, isMoveToPrevious: false, targetMonth: currentMonth, salespersonId: entryStaffId, amount: finalAmount, createdAt: new Date().toISOString() });
     showMessage('登録しました');
   }, [basePath, currentMonth, entryStaffId, showMessage]);
 
@@ -1802,7 +1809,7 @@ const MainApp = ({ branchSetting }) => {
       isCarryOver: false,
       isMoveToPrevious: false,
       isApplying: false,
-      completionDocumentSubmittedDate: APPLICATION_MARK_CATEGORIES.includes(category) ? getTodayDateString() : null,
+      completionDocumentSubmittedDate: APPLICATION_MARK_CATEGORIES.includes(category) ? '' : null,
       billingType: 'full',
       hospitalPlanDayType: null,
       hospitalPlanAmountMode: null,
