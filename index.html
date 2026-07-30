@@ -606,10 +606,21 @@ const BacklogTotalCard = ({ totalAmt, baseAmt = totalAmt, hospitalPlanAmt = 0, n
   );
 };
 
+// ポータル(taiyo-portal)でログイン済みなら、選んだ営業所名だけ分かるようにヒント表示する。
+// 設定コード・アクセスコードは営業所ごとに既存データと紐づく重要な値のため、推測して自動入力はしない。
+const portalSessionOfficeName = () => {
+  try {
+    const s = JSON.parse(localStorage.getItem('taiyo_portal_session') || 'null');
+    return (s && s.office) ? s.office : '';
+  } catch { return ''; }
+};
+
 const SetupScreen = ({ onComplete }) => {
   const [branchCode, setBranchCode] = useState('');
   const [accessCode, setAccessCode] = useState('');
   const [error, setError] = useState('');
+  const portalOffice = portalSessionOfficeName();
+  const portalOfficeShort = portalOffice.replace(/営業所$/, '');
 
   const handleSetup = (e) => {
     e.preventDefault();
@@ -644,8 +655,13 @@ const SetupScreen = ({ onComplete }) => {
         <div className="mb-5 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs font-bold leading-relaxed text-amber-800">
           以前の画面が出ない場合も、前と同じ営業所コードとアクセスコードを入力すると保存済みデータを読み込めます。
         </div>
+        {portalOffice && (
+          <div className="mb-5 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-xs font-bold leading-relaxed text-blue-800">
+            ポータルで選択した営業所：{portalOffice}。設定コードは、この営業所の他の端末で使っているものと同じ文字列を入力してください（分からない場合は所長・担当者にご確認ください。自動入力はしていません）。
+          </div>
+        )}
         <form onSubmit={handleSetup} className="space-y-5">
-          <input value={branchCode} onChange={(e) => { setBranchCode(e.target.value); setError(''); }} placeholder="設定コード (例: 行橋)" className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3.5 font-bold text-lg outline-none focus:border-blue-400 text-center shadow-sm" {...JAPANESE_TEXT_INPUT_PROPS} />
+          <input value={branchCode} onChange={(e) => { setBranchCode(e.target.value); setError(''); }} placeholder={portalOfficeShort ? `設定コード (例: ${portalOfficeShort})` : '設定コード (例: 行橋)'} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3.5 font-bold text-lg outline-none focus:border-blue-400 text-center shadow-sm" {...JAPANESE_TEXT_INPUT_PROPS} />
           <input type="password" value={accessCode} onChange={(e) => { setAccessCode(e.target.value); setError(''); }} placeholder="アクセスコード（5文字以上）" className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3.5 font-bold text-lg outline-none focus:border-blue-400 text-center shadow-sm" />
           <p className="text-[11px] text-slate-500 font-bold leading-relaxed text-center">同じ営業所で使う端末には、同じ営業所コードとアクセスコードを入力してください。</p>
           {error && <p className="text-red-500 text-xs font-bold text-center">{error}</p>}
