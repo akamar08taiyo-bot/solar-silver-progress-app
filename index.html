@@ -697,11 +697,21 @@ const NewEntryForm = React.memo(({ salespersons, onSubmit, selectedStaffId, onSt
     });
   }, [data.category]);
 
-  const handleSub = (e) => {
+  // 保存(onSubmit)の完了を待ってからフォームを空にする。従来は待たずに
+  // 即座にクリアしていたため、保存に失敗しても入力が消えていた（SP-06）。
+  const [submitting, setSubmitting] = React.useState(false);
+  const handleSub = async (e) => {
     e.preventDefault();
-    if (!data.customerName.trim()) return;
-    onSubmit(data);
-    setData((prev) => ({ ...prev, customerName: '', careHomeName: '', amount: '', isCarryOver: false, hospitalPlanDate: '' }));
+    if (!data.customerName.trim() || submitting) return;
+    setSubmitting(true);
+    try {
+      await onSubmit(data);
+      setData((prev) => ({ ...prev, customerName: '', careHomeName: '', amount: '', isCarryOver: false, hospitalPlanDate: '' }));
+    } catch {
+      // エラー表示はonSubmit(handleEntrySubmit)側で行う。ここでは入力を保持するだけ。
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (
@@ -761,7 +771,7 @@ const NewEntryForm = React.memo(({ salespersons, onSubmit, selectedStaffId, onSt
         </div>
         <div className="flex flex-col sm:flex-row justify-between items-center gap-6 pt-6 border-t-2 border-slate-100">
           <label className="flex items-center gap-3 cursor-pointer"><input type="checkbox" checked={data.isCarryOver} onChange={(e) => setData({ ...data, isCarryOver: e.target.checked })} className="w-6 h-6 rounded border-slate-200 text-blue-500 shadow-sm" /><span className="font-bold text-slate-700">翌月繰越として登録</span></label>
-          <button className="w-full sm:w-auto bg-blue-500 text-white font-bold px-12 py-4 rounded-xl shadow-xl flex items-center justify-center gap-3 text-lg hover:bg-blue-600 active:scale-95 transition-all"><Save size={24} /> 案件を登録</button>
+          <button type="submit" disabled={submitting} className="w-full sm:w-auto bg-blue-500 text-white font-bold px-12 py-4 rounded-xl shadow-xl flex items-center justify-center gap-3 text-lg hover:bg-blue-600 active:scale-95 transition-all disabled:opacity-60 disabled:cursor-not-allowed disabled:active:scale-100"><Save size={24} /> {submitting ? '登録中…' : '案件を登録'}</button>
         </div>
       </form>
     </Card>
@@ -1549,7 +1559,13 @@ const MainApp = ({ branchSetting }) => {
   const loginRecordedRef = useRef(false);
 
   const [currentYear, currentMonthNum] = useMemo(() => [currentMonth.split('-')[0], Number(currentMonth.split('-')[1])], [currentMonth]);
-  const showMessage = useCallback((text) => { setNotification(text); setTimeout(() => setNotification(null), 2000); }, []);
+  // typeを見て通知表示を変える（SP-06 / COMMON-06）。従来は常に緑チェックの
+  // 成功表示だったため、エラーを渡しても成功したように見えていた。
+  const showMessage = useCallback((text, type = 'success') => {
+    setNotification({ text, type });
+    setTimeout(() => setNotification(null), type === 'error' ? 6000 : 2000);
+  }, []);
+  const showError = useCallback((text) => showMessage(text, 'error'), [showMessage]);
   const handleResetBranchSetting = useCallback(() => {
     if (!window.confirm('営業所設定を変更しますか？この端末の保存済み設定だけを削除します。')) return;
     localStorage.removeItem('solar_silver_branch_setting');
@@ -1819,9 +1835,16 @@ const MainApp = ({ branchSetting }) => {
     let finalAmount = Number(data.amount || 0);
     if (isHospitalPlanCategoryName(data.category)) finalAmount *= 1000;
     else if (data.billingType === 'half') finalAmount = Math.floor(finalAmount / 2);
-    await setDoc(doc(db, ...basePath, 'orders', newId), { ...data, hospitalPlanDayType: null, hospitalPlanAmountMode: null, hospitalPlanDate: isHospitalPlanCategoryName(data.category) ? (data.hospitalPlanDate || '') : null, isHospitalPlanReflected: isHospitalPlanCategoryName(data.category) ? false : null, completionDocumentSubmittedDate: APPLICATION_MARK_CATEGORIES.includes(data.category) ? '' : null, isApplying: false, isMoveToPrevious: false, targetMonth: currentMonth, salespersonId: entryStaffId, amount: finalAmount, createdAt: new Date().toISOString() });
-    showMessage('登録しました');
-  }, [basePath, currentMonth, entryStaffId, showMessage]);
+    try {
+      await setDoc(doc(db, ...basePath, 'orders', newId), { ...data, hospitalPlanDayType: null, hospitalPlanAmountMode: null, hospitalPlanDate: isHospitalPlanCategoryName(data.category) ? (data.hospitalPlanDate || '') : null, isHospitalPlanReflected: isHospitalPlanCategoryName(data.category) ? false : null, completionDocumentSubmittedDate: APPLICATION_MARK_CATEGORIES.includes(data.category) ? '' : null, isApplying: false, isMoveToPrevious: false, targetMonth: currentMonth, salespersonId: entryStaffId, amount: finalAmount, createdAt: new Date().toISOString() });
+      showMessage('登録しました');
+    } catch (e) {
+      // 登録失敗を通知したうえで再スローする。呼び出し元(NewEntryForm.handleSub)は
+      // これを検知して入力内容をクリアせずに残す（SP-06 / COMMON-06）。
+      showError('登録に失敗しました。通信状況をご確認のうえ、もう一度お試しください。入力した内容は消えていません。');
+      throw e;
+    }
+  }, [basePath, currentMonth, entryStaffId, showMessage, showError]);
 
   const handleAddListRow = useCallback(async (category = RENTAL_CATEGORIES[0]) => {
     const targetStaffId = listStaffId === 'all' ? (salespersons[0]?.id || entryStaffId) : listStaffId;
@@ -2189,7 +2212,7 @@ const MainApp = ({ branchSetting }) => {
 
   return (
     <div id="app-root" className="min-h-screen bg-slate-50 text-slate-800 font-sans pb-12 antialiased" style={{ zoom: zoomLevel }}>
-      {notification && <div className="fixed top-6 left-1/2 -translate-x-1/2 z-[100] px-6 py-3 rounded-xl shadow-xl font-bold text-sm bg-slate-900 text-white flex items-center gap-3 border border-white/10 print:hidden"><CheckCircle2 size={18} className="text-emerald-400" />{notification}</div>}
+      {notification && <div role={notification.type === 'error' ? 'alert' : 'status'} className={`fixed top-6 left-1/2 -translate-x-1/2 z-[100] px-6 py-3 rounded-xl shadow-xl font-bold text-sm text-white flex items-center gap-3 border border-white/10 print:hidden ${notification.type === 'error' ? 'bg-rose-700' : 'bg-slate-900'}`}>{notification.type === 'error' ? <AlertCircle size={18} className="text-rose-200" /> : <CheckCircle2 size={18} className="text-emerald-400" />}{notification.text}</div>}
       {showUpdateConfirm && <UpdateConfirmModal salespersons={salespersons} onClose={() => setShowUpdateConfirm(false)} onConfirm={handleToggleStaffUpdateConfirm} />}
       <PDFTemplate branchName={BRANCH_NAME} currentMonth={currentMonth} branchSummary={branchSummary} branchTotalPersonDetailedSummary={branchTotalPersonDetailedSummary} rankingInsights={rankingInsights} />
       <header className="bg-white border-b border-slate-100 sticky top-0 z-50 shadow-sm print:hidden">
