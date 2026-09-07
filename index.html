@@ -95,6 +95,9 @@ const HOSPITAL_PLAN_LEGACY_CATEGORY = '入退院予定者';
 const SALES_CATEGORIES = ['住宅改修', '特定福祉用具販売', HOSPITAL_PLAN_CATEGORY, '一般販売', '紙おむつ', '消耗品'];
 const OTHER_SALES_CATS = ['一般販売', '紙おむつ', '消耗品'];
 const APPLICATION_MARK_CATEGORIES = ['住宅改修', '特定福祉用具販売'];
+// 分析タブ用。住宅改修・特定福祉用具は金額ベース、レンタル系は件数ベースで見せ方が違うため分けて扱う。
+const SALES_ANALYSIS_CATEGORIES = ['住宅改修', '特定福祉用具販売'];
+const DONUT_PALETTE = ['#3b82f6', '#10b981', '#f59e0b', '#ec4899', '#8b5cf6', '#14b8a6', '#f43f5e', '#64748b'];
 const allCategories = [...RENTAL_CATEGORIES, ...SALES_CATEGORIES];
 const sources = ['包括', '居宅', '退院/連携室', 'その他'];
 const STATUS_RENTAL = ['未確定', '確定済'];
@@ -2141,17 +2144,24 @@ const MainApp = ({ branchSetting }) => {
     const monthSet = new Set(periodMonths);
     const previousMonthSet = new Set(periodMonths.map((m) => getOffsetMonth(m, -12)));
     const matchStaff = (o) => analyticsStaffId === 'all' || Number(o.salespersonId) === Number(analyticsStaffId);
-    const periodOrders = orders.filter((o) => matchStaff(o) && monthSet.has(getOrderAccountingMonth(o)));
-    const previousOrders = orders.filter((o) => matchStaff(o) && previousMonthSet.has(getOrderAccountingMonth(o)));
+    // 入退院（予定）は実際の依頼ではなく在庫調整の性質が強く、一般販売・紙おむつ・消耗品は
+    // 任意項目の付随的な売上なので、分析の対象からは外す（ユーザー指示）。
+    const isAnalyticsCategory = (cat) => !isHospitalPlanCategoryName(cat) && !OTHER_SALES_CATS.includes(cat);
+    const periodOrders = orders.filter((o) => matchStaff(o) && isAnalyticsCategory(o.category) && monthSet.has(getOrderAccountingMonth(o)));
+    const previousOrders = orders.filter((o) => matchStaff(o) && isAnalyticsCategory(o.category) && previousMonthSet.has(getOrderAccountingMonth(o)));
+    // 担当者別の傾向・個人分析は「担当者を比較するための表」なので、上の担当者フィルタとは
+    // 独立に常に全担当者分を計算する（フィルタをかけると比較相手が消えてしまうため）。
+    const periodOrdersAllStaff = orders.filter((o) => isAnalyticsCategory(o.category) && monthSet.has(getOrderAccountingMonth(o)));
+    const previousOrdersAllStaff = orders.filter((o) => isAnalyticsCategory(o.category) && previousMonthSet.has(getOrderAccountingMonth(o)));
     // 未到来の月を分母に入れると月平均が実態より低く出るため、経過済みの月だけで割る。
     // 'YYYY-MM' はゼロ埋めなので文字列比較で月の前後を判定できる。
     const elapsedMonths = periodMonths.filter((m) => m <= currentMonth).length;
     const avgDivisor = Math.max(1, elapsedMonths);
-    const normalizeCat = (cat) => (isHospitalPlanCategoryName(cat) ? HOSPITAL_PLAN_CATEGORY : cat);
+    // 入退院（予定）は上のisAnalyticsCategoryで除外済みなので、ここに残る注文の
+    // カテゴリ名はもう新旧表記(入退院予定者)を吸収する必要がない。素通しでよい。
+    const normalizeCat = (cat) => cat;
     const staffName = (id) => salespersons.find((s) => Number(s.id) === Number(id))?.name || '未設定';
-    // 入退院（予定）は入院がマイナス・退院がプラスなので、金額はそのまま足すと
-    // 相殺されるはずの入院分まで加算されて総額が過大になる。符号つきの値を使う。
-    const orderAmount = (o) => (isHospitalPlanCategoryName(o.category) ? getHospitalPlanSignedAmount(o) : Number(o.amount || 0));
+    const orderAmount = (o) => Number(o.amount || 0);
 
     const categoryRows = allCategories.map((cat) => {
       const catOrders = periodOrders.filter((o) => normalizeCat(o.category) === cat);
@@ -2181,7 +2191,6 @@ const MainApp = ({ branchSetting }) => {
     const facilityMap = new Map();
     let unnamedCount = 0;
     for (const o of periodOrders) {
-      if (OTHER_SALES_CATS.includes(o.category)) continue; // 一般販売等は事業所名の対象外
       const name = String(o.careHomeName || '').trim();
       if (!name) { unnamedCount += 1; continue; }
       if (!facilityMap.has(name)) facilityMap.set(name, { name, count: 0, amount: 0, sourceCount: {}, categoryCount: {}, staffIds: new Set(), lastMonth: '' });
@@ -2203,15 +2212,22 @@ const MainApp = ({ branchSetting }) => {
         .map(([c, n]) => `${c === '特定福祉用具販売' ? '特定福祉用具' : c}${n}`).join(' / ')
     })).sort((a, b) => b.count - a.count || b.amount - a.amount);
 
-    // 担当者を絞り込んでいるときに全員分の行を出すと、選んでいない担当者が
-    // 一律0件で並んで紛らわしいので、絞り込み中は本人の行だけにする。
-    const staffRows = salespersons.filter((s) => s?.id && (analyticsStaffId === 'all' || Number(s.id) === Number(analyticsStaffId))).map((staff) => {
-      const staffOrders = periodOrders.filter((o) => Number(o.salespersonId) === Number(staff.id));
-      const prevCount = previousOrders.filter((o) => Number(o.salespersonId) === Number(staff.id)).length;
-      const rateTarget = staffOrders.filter((o) => !isHospitalPlanCategoryName(o.category));
-      const doneCnt = rateTarget.filter((o) => isCompletedStatus(o.status)).length;
-      // 事業所数は事業所別ランキングと同じ母集団にする（一般販売等は対象外）
-      const facilities = new Set(staffOrders.filter((o) => !OTHER_SALES_CATS.includes(o.category)).map((o) => String(o.careHomeName || '').trim()).filter(Boolean));
+    const staffRows = salespersons.filter((s) => s?.id).map((staff) => {
+      const staffOrders = periodOrdersAllStaff.filter((o) => Number(o.salespersonId) === Number(staff.id));
+      const prevCount = previousOrdersAllStaff.filter((o) => Number(o.salespersonId) === Number(staff.id)).length;
+      const doneCnt = staffOrders.filter((o) => isCompletedStatus(o.status)).length;
+      // 個人分析（カテゴリ構成比・取引事業所トップ5）用の内訳。ここも常に本人の全期間データで計算する。
+      const categoryBreakdown = {};
+      const categoryAmountBreakdown = {};
+      const facilityCountMap = {};
+      for (const o of staffOrders) {
+        const label = normalizeCat(o.category);
+        categoryBreakdown[label] = (categoryBreakdown[label] || 0) + 1;
+        categoryAmountBreakdown[label] = (categoryAmountBreakdown[label] || 0) + orderAmount(o);
+        const name = String(o.careHomeName || '').trim();
+        if (name) facilityCountMap[name] = (facilityCountMap[name] || 0) + 1;
+      }
+      const topFacilities = Object.entries(facilityCountMap).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([name, count]) => ({ name, count }));
       return {
         id: staff.id,
         name: staff.name,
@@ -2220,10 +2236,14 @@ const MainApp = ({ branchSetting }) => {
         prevCount,
         yoy: prevCount > 0 ? (staffOrders.length / prevCount) * 100 : null,
         amount: staffOrders.reduce((sum, o) => sum + orderAmount(o), 0),
-        doneRate: rateTarget.length > 0 ? (doneCnt / rateTarget.length) * 100 : null,
-        facilityCount: facilities.size
+        doneRate: staffOrders.length > 0 ? (doneCnt / staffOrders.length) * 100 : null,
+        facilityCount: Object.keys(facilityCountMap).length,
+        categoryBreakdown,
+        categoryAmountBreakdown,
+        topFacilities
       };
     }).sort((a, b) => b.count - a.count);
+    const staffTotalCount = staffRows.reduce((sum, r) => sum + r.count, 0);
 
     const sourceCount = { 包括: 0, 居宅: 0, '退院/連携室': 0, その他: 0 };
     for (const o of periodOrders) {
@@ -2248,6 +2268,7 @@ const MainApp = ({ branchSetting }) => {
       unnamedCount,
       facilityTotal: facilityMap.size,
       staffRows,
+      staffTotalCount,
       sourceCount,
       sourceTotal
     };
@@ -2394,7 +2415,7 @@ const MainApp = ({ branchSetting }) => {
         {activeTab === 'trend' && <section className="space-y-6"><div className="flex justify-between items-end"><SectionHeader icon={LineChart} title="今年年度（4月〜3月）の見込み推移" subtitle="Fiscal Year Trend" /></div><RankingInsightsPanel insights={rankingInsights} compact salespersons={salespersons} period={rankingPeriod} setPeriod={setRankingPeriod} staffId={rankingStaffId} setStaffId={setRankingStaffId} /><div className="flex bg-white p-2.5 rounded-2xl border border-slate-200 shadow-md gap-3 overflow-x-auto"><button onClick={() => setTrendStaffId('overall')} className={`px-8 py-3 rounded-xl font-bold text-lg whitespace-nowrap ${trendStaffId === 'overall' ? 'bg-slate-700 text-white shadow-lg' : 'text-slate-600 hover:bg-slate-50'}`}>{BRANCH_NAME} 全体</button>{salespersons.map((staff) => <button key={staff.id} onClick={() => setTrendStaffId(staff.id)} className={`px-8 py-3 rounded-xl font-bold text-lg whitespace-nowrap ${trendStaffId === staff.id ? 'bg-blue-500 text-white shadow-lg' : 'text-slate-600 hover:bg-slate-50'}`}>{staff.name}</button>)}</div><div className="grid grid-cols-1 md:grid-cols-2 gap-6"><StackedBarChart data={trendData.series.rentalNew} previousData={trendData.previousSeries.rentalNew} labels={trendData.months} currentMonth={currentMonth} title="レンタル新規 見込み(件)" unit="件" yAxisMax={trendStaffId === 'overall' ? chartConfig.overall.rentalNew : chartConfig.personal.rentalNew} /><StackedBarChart data={trendData.series.bed} previousData={trendData.previousSeries.bed} labels={trendData.months} currentMonth={currentMonth} title="特価台数 見込み(台)" unit="台" yAxisMax={trendStaffId === 'overall' ? chartConfig.overall.bed : chartConfig.personal.bed} /><StackedBarChart data={trendData.series.renovation} previousData={trendData.previousSeries.renovation} labels={trendData.months} currentMonth={currentMonth} title="住宅改修 見込み(件)" unit="件" /><StackedBarChart data={trendData.series.equipment} previousData={trendData.previousSeries.equipment} labels={trendData.months} currentMonth={currentMonth} title="特定福祉用具販売 見込み(件)" unit="件" /></div></section>}
         {activeTab === 'list' && <section className="space-y-4"><ListToolbar currentYear={currentYear} currentMonthNum={currentMonthNum} currentMonth={currentMonth} setCurrentMonth={setCurrentMonth} /><div className="flex flex-col md:flex-row gap-4 items-center justify-between"><div className="flex flex-col lg:flex-row gap-3 w-full md:w-auto"><StaffFilter salespersons={salespersons} value={listStaffId} setValue={(v) => { setListStaffId(v); setSelectedCategoryFilter('すべて'); }} overallLabel={`${BRANCH_NAME} 全体`} /><ListSortControl value={listSortMode} setValue={setListSortMode} /></div><div className="flex flex-col sm:flex-row gap-2 w-full md:w-auto"><button onClick={handleMoveCheckedToPrevious} className="w-full md:w-auto text-slate-700 bg-white border border-slate-200 px-6 py-2.5 rounded-xl font-bold text-sm flex items-center justify-center gap-2 shadow-sm hover:bg-slate-50"><RotateCcw size={18} className="-scale-x-100" />前月へ戻す</button><button onClick={handleCarryOverChecked} className="w-full md:w-auto text-white bg-blue-500 px-6 py-2.5 rounded-xl font-bold text-sm flex items-center justify-center gap-2 shadow-md hover:bg-blue-600"><RotateCcw size={18} />次月へ移行</button></div></div><BranchSourceFilter currentFilter={listSourceFilter} onChange={setListSourceFilter} prefix="list" /><CategoryFilter items={listOrders} selected={selectedCategoryFilter} onSelect={setSelectedCategoryFilter} /><OrderTable items={listOrders} onUpdate={updateOrderField} onDelete={deleteOrder} salespersons={salespersons} showStaffName={listStaffId === 'all'} selectedCategory={selectedCategoryFilter} onAddCategory={handleAddListRow} /></section>}
         {activeTab === 'hospital_list' && <section className="space-y-4"><SectionHeader icon={Users} title="入退院（予定）一覧" subtitle="Hospital Plan List" /><ListToolbar currentYear={currentYear} currentMonthNum={currentMonthNum} currentMonth={currentMonth} setCurrentMonth={setCurrentMonth} /><div className="flex flex-col md:flex-row gap-4 items-center justify-between"><div className="flex flex-col lg:flex-row gap-3 w-full md:w-auto"><StaffFilter salespersons={salespersons} value={listStaffId} setValue={setListStaffId} overallLabel={`${BRANCH_NAME} 全体`} /><ListSortControl value={listSortMode} setValue={setListSortMode} /></div><div className="flex flex-col sm:flex-row gap-2 w-full md:w-auto"><button onClick={handleMoveCheckedToPrevious} className="w-full md:w-auto text-slate-700 bg-white border border-slate-200 px-6 py-2.5 rounded-xl font-bold text-sm flex items-center justify-center gap-2 shadow-sm hover:bg-slate-50"><RotateCcw size={18} className="-scale-x-100" />前月へ戻す</button><button onClick={handleCarryOverChecked} className="w-full md:w-auto text-white bg-blue-500 px-6 py-2.5 rounded-xl font-bold text-sm flex items-center justify-center gap-2 shadow-md hover:bg-blue-600"><RotateCcw size={18} />次月へ移行</button></div></div><BranchSourceFilter currentFilter={listSourceFilter} onChange={setListSourceFilter} prefix="hospital-list" /><OrderTable items={listOrders} onUpdate={updateOrderField} onDelete={deleteOrder} salespersons={salespersons} showStaffName={listStaffId === 'all'} selectedCategory={HOSPITAL_PLAN_CATEGORY} onAddCategory={handleAddListRow} /></section>}
-        {activeTab === 'analytics' && <AnalyticsView data={analyticsData} salespersons={salespersons} period={analyticsPeriod} setPeriod={setAnalyticsPeriod} staffId={analyticsStaffId} setStaffId={setAnalyticsStaffId} />}
+        {activeTab === 'analytics' && <AnalyticsView data={analyticsData} salespersons={salespersons} period={analyticsPeriod} setPeriod={setAnalyticsPeriod} staffId={analyticsStaffId} setStaffId={setAnalyticsStaffId} branchName={BRANCH_NAME} />}
         {activeTab === 'compliance' && <Usage />}
         {activeTab === 'master' && <section className="space-y-6"><SectionHeader icon={Settings} title={`${BRANCH_NAME} マスタ設定`} subtitle="Master Settings" /><MasterSetupStatusCard isConfirmed={isMasterConfirmed} staffCount={salespersons.length} onConfirm={handleConfirmMasterSettings} /><div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">{salespersons.filter((s) => s?.id).map((s, idx) => <StaffMemberItem key={s.id} staff={s} isFirst={idx === 0} isLast={idx === salespersons.length - 1} onMove={handleMoveStaff} onUpdate={updateStaffField} onDelete={async (id) => { await deleteDoc(doc(db, ...basePath, 'staff', String(id))); showMessage('スタッフを削除しました'); }} />)}<AddStaffCard value={newStaffName} setValue={setNewStaffName} onAdd={async () => { if (!newStaffName) return; const newId = Date.now(); await setDoc(doc(db, ...basePath, 'staff', String(newId)), { id: newId, name: newStaffName, budgetRenovation: 0, targetRenovationCnt: 0, budgetEquipment: 0, targetEquipmentCnt: 0, targetRentalNew: 0, targetBedNew: 0, orderIndex: salespersons.length }); setNewStaffName(''); showMessage('追加しました'); }} /></div><ChartConfigCard chartConfig={chartConfig} onSave={handleUpdateChartConfig} /><DataPortabilityCard onExport={handleExportData} onImportClick={() => importFileRef.current?.click()} importRef={importFileRef} onImport={handleImportData} loginHistory={loginHistory} /></section>}
       </main>
@@ -2556,9 +2577,89 @@ const AnalyticsCard = ({ title, description, children }) => (
 
 const analyticsRatioText = (value) => (value === null ? '—' : `${Math.round(value)}%`);
 const analyticsAvgText = (value) => `${Math.round(value * 10) / 10}件`;
+const analyticsCategoryLabel = (cat) => (cat === '特定福祉用具販売' ? '特定福祉用具' : cat);
 
-const AnalyticsView = ({ data, salespersons, period, setPeriod, staffId, setStaffId }) => {
+// 件数・金額どちらでも使える構成比ドーナツ。conic-gradientはCDN Tailwindでは表現できないため
+// インラインstyleで直接組み立てる（既存のSourceRatioPieと同じ手法）。
+const RatioDonut = ({ segments, unit = '件', size = 132 }) => {
+  const clean = segments.filter((seg) => seg.value > 0);
+  const total = clean.reduce((sum, seg) => sum + seg.value, 0);
+  let acc = 0;
+  const stops = clean.map((seg) => {
+    const start = acc;
+    const deg = total ? (seg.value / total) * 360 : 0;
+    acc += deg;
+    return `${seg.color} ${start}deg ${start + deg}deg`;
+  });
+  const style = { width: size, height: size, background: total ? `conic-gradient(${stops.join(', ')})` : '#e2e8f0' };
+  const pct = (v) => (total ? `${Math.round((v / total) * 100)}%` : '0%');
+  const fmt = (v) => (unit === '円' ? `${yenK(v)}千円` : `${v}${unit}`);
+  return (
+    <div className="flex flex-col sm:flex-row sm:items-center gap-5 min-w-0">
+      <div className="rounded-full shrink-0 shadow-inner border-4 border-white ring-1 ring-slate-200 mx-auto sm:mx-0" style={style} />
+      <div className="min-w-0 flex-1 space-y-2 text-sm font-extrabold text-slate-800">
+        {total === 0 && <div className="text-slate-400 font-bold py-2">データなし</div>}
+        {clean.map((seg) => (
+          <div key={seg.label} className="flex items-center justify-between gap-3 rounded-xl px-3 py-2" style={{ backgroundColor: `${seg.color}14`, border: `1px solid ${seg.color}40` }}>
+            <span className="flex items-center gap-2 min-w-0"><span className="w-2.5 h-2.5 rounded-sm shrink-0" style={{ backgroundColor: seg.color }} /><span className="truncate" style={{ color: seg.color }}>{seg.label}</span></span>
+            <span className="whitespace-nowrap shrink-0">{fmt(seg.value)} / {pct(seg.value)}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+};
+
+// レンタル/販売タブでカテゴリごとの主要指標を1枚にまとめるカード。
+const AnalyticsCategoryCard = ({ row, showAmount = false }) => (
+  <div className="bg-white border-2 border-slate-200 rounded-2xl p-5 shadow-sm space-y-3">
+    <div className="font-extrabold text-slate-900 text-lg leading-tight">{row.label}</div>
+    <div className="grid grid-cols-2 gap-2.5">
+      <div className="bg-blue-50 border border-blue-100 rounded-xl px-3 py-2"><div className="text-[10px] font-extrabold text-blue-600 uppercase tracking-wider">件数</div><div className="text-xl font-extrabold text-blue-700 mt-0.5">{row.count}件</div></div>
+      <div className="bg-slate-50 border border-slate-100 rounded-xl px-3 py-2"><div className="text-[10px] font-extrabold text-slate-500 uppercase tracking-wider">月平均</div><div className="text-xl font-extrabold text-slate-800 mt-0.5">{analyticsAvgText(row.monthlyAvg)}</div></div>
+      <div className="bg-slate-50 border border-slate-100 rounded-xl px-3 py-2"><div className="text-[10px] font-extrabold text-slate-500 uppercase tracking-wider">前年比</div><div className={`text-xl font-extrabold mt-0.5 ${row.yoy === null ? 'text-slate-400' : row.yoy >= 100 ? 'text-emerald-600' : 'text-rose-600'}`}>{analyticsRatioText(row.yoy)}</div></div>
+      <div className="bg-slate-50 border border-slate-100 rounded-xl px-3 py-2"><div className="text-[10px] font-extrabold text-slate-500 uppercase tracking-wider">確定率</div><div className="text-xl font-extrabold text-slate-800 mt-0.5">{analyticsRatioText(row.doneRate)}</div></div>
+    </div>
+    {showAmount && (
+      <div className="grid grid-cols-2 gap-2.5 pt-2 border-t border-slate-100">
+        <div><div className="text-[10px] font-extrabold text-slate-500 uppercase tracking-wider">金額合計</div><div className="text-base font-extrabold text-slate-800 mt-0.5">{yenK(row.amount)}千円</div></div>
+        <div><div className="text-[10px] font-extrabold text-slate-500 uppercase tracking-wider">1件平均</div><div className="text-base font-extrabold text-slate-800 mt-0.5">{yenK(row.avgUnitPrice)}千円</div></div>
+      </div>
+    )}
+  </div>
+);
+
+// 担当者ランキングの横棒。件数・金額どちらでも使う。
+const AnalyticsRankingBars = ({ rows, unit = '件' }) => {
+  const max = Math.max(1, ...rows.map((r) => r.value));
+  return (
+    <div className="p-4 space-y-2.5">
+      {rows.length === 0 && <div className="text-center text-slate-500 font-bold py-4">データなし</div>}
+      {rows.map((row, i) => (
+        <div key={row.label} className="flex items-center gap-3">
+          <span className="w-5 text-right text-xs font-extrabold text-slate-400 shrink-0">{i + 1}</span>
+          <span className="w-20 sm:w-28 shrink-0 font-bold text-slate-700 text-sm truncate">{row.label}</span>
+          <div className="flex-1 h-5 bg-slate-100 rounded-full overflow-hidden min-w-0">
+            <div className="h-full bg-gradient-to-r from-blue-400 to-blue-500 rounded-full" style={{ width: `${(row.value / max) * 100}%` }} />
+          </div>
+          <span className="w-20 sm:w-24 shrink-0 text-right font-extrabold text-blue-600 text-sm whitespace-nowrap">{unit === '円' ? `${yenK(row.value)}千円` : `${row.value}${unit}`}</span>
+        </div>
+      ))}
+    </div>
+  );
+};
+
+const ANALYTICS_SUBVIEWS = [
+  { id: 'overview', label: '概要', icon: PieChart },
+  { id: 'rental', label: 'レンタル', icon: TrendingUp },
+  { id: 'sales', label: '販売', icon: BarChart3 },
+  { id: 'personal', label: '個人', icon: User }
+];
+
+const AnalyticsView = ({ data, salespersons, period, setPeriod, staffId, setStaffId, branchName }) => {
+  const [subView, setSubView] = useState('overview');
   const [showAllFacilities, setShowAllFacilities] = useState(false);
+  const [personalStaffId, setPersonalStaffId] = useState('');
   const facilities = showAllFacilities ? data.facilityRows : data.facilityRows.slice(0, 15);
   const sourceSegments = [
     { key: '包括', color: 'bg-blue-400' },
@@ -2566,6 +2667,19 @@ const AnalyticsView = ({ data, salespersons, period, setPeriod, staffId, setStaf
     { key: '退院/連携室', color: 'bg-amber-400' },
     { key: 'その他', color: 'bg-slate-300' }
   ];
+  const categoryDonutSegments = data.categoryRows.map((row, i) => ({ label: row.label, value: row.count, color: DONUT_PALETTE[i % DONUT_PALETTE.length] }));
+  const staffDonutSegments = data.staffRows.map((row, i) => ({ label: row.name, value: row.count, color: DONUT_PALETTE[i % DONUT_PALETTE.length] }));
+  const categoryRow = (cat) => data.categoryRows.find((r) => r.cat === cat) || { cat, label: analyticsCategoryLabel(cat), count: 0, monthlyAvg: 0, yoy: null, doneRate: null, amount: 0, avgUnitPrice: 0 };
+  const rentalStaffRanking = data.staffRows.map((r) => ({ label: r.name, value: RENTAL_CATEGORIES.reduce((s, c) => s + (r.categoryBreakdown[c] || 0), 0) })).filter((r) => r.value > 0).sort((a, b) => b.value - a.value);
+  const salesStaffRanking = data.staffRows.map((r) => ({ label: r.name, value: SALES_ANALYSIS_CATEGORIES.reduce((s, c) => s + (r.categoryAmountBreakdown[c] || 0), 0) })).filter((r) => r.value > 0).sort((a, b) => b.value - a.value);
+  const personalOptions = data.staffRows;
+  const effectivePersonalId = personalStaffId || personalOptions[0]?.id || '';
+  const personalRow = personalOptions.find((r) => Number(r.id) === Number(effectivePersonalId));
+  const personalOthers = personalOptions.filter((r) => r.id !== personalRow?.id);
+  const personalAvgOthers = personalOthers.length > 0 ? personalOthers.reduce((s, r) => s + r.count, 0) / personalOthers.length : 0;
+  const personalVsAvg = personalRow && personalAvgOthers > 0 ? (personalRow.count / personalAvgOthers) * 100 : null;
+  const personalShare = personalRow && data.staffTotalCount > 0 ? (personalRow.count / data.staffTotalCount) * 100 : 0;
+  const personalCategoryDonut = personalRow ? [...RENTAL_CATEGORIES, ...SALES_ANALYSIS_CATEGORIES].map((cat, i) => ({ label: analyticsCategoryLabel(cat), value: personalRow.categoryBreakdown[cat] || 0, color: DONUT_PALETTE[i % DONUT_PALETTE.length] })) : [];
 
   return (
     <section className="space-y-6">
@@ -2574,159 +2688,253 @@ const AnalyticsView = ({ data, salespersons, period, setPeriod, staffId, setStaf
         <RankingControlSelect label="期間" value={period} onChange={setPeriod}>
           {RANKING_PERIOD_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
         </RankingControlSelect>
-        <RankingControlSelect label="担当者" value={staffId} onChange={setStaffId}>
-          <option value="all">全員</option>
-          {salespersons.filter((s) => s?.id).map((staff) => <option key={staff.id} value={staff.id}>{staff.name}</option>)}
-        </RankingControlSelect>
-      </div>
-
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        <AnalyticsSummaryCard accent label="依頼件数" value={`${data.totalCount}件`} sub={`${data.periodLabel} / ${data.staffLabel}`} />
-        <AnalyticsSummaryCard label="月平均 依頼件数" value={analyticsAvgText(data.monthlyAvg)} sub={`経過${data.avgDivisor}ヶ月で計算`} />
-        <AnalyticsSummaryCard label="前年同期比" value={analyticsRatioText(data.yoy)} sub={data.previousTotal > 0 ? `前年同期 ${data.previousTotal}件` : '前年データなし'} />
-        <AnalyticsSummaryCard label="金額合計" value={`${yenK(data.totalAmount)}千円`} sub="レンタルは月額・販売は税抜" />
-      </div>
-
-      <AnalyticsCard title="カテゴリ別の傾向" description="件数・月平均・前年同期比・確定率・1件あたり平均金額">
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm min-w-[720px]">
-            <thead className="bg-slate-50 text-slate-700">
-              <tr>
-                <th className="px-4 py-2.5 text-left font-extrabold whitespace-nowrap">カテゴリ</th>
-                <th className="px-4 py-2.5 text-right font-extrabold whitespace-nowrap">件数</th>
-                <th className="px-4 py-2.5 text-right font-extrabold whitespace-nowrap">月平均</th>
-                <th className="px-4 py-2.5 text-right font-extrabold whitespace-nowrap">前年同期</th>
-                <th className="px-4 py-2.5 text-right font-extrabold whitespace-nowrap">前年比</th>
-                <th className="px-4 py-2.5 text-right font-extrabold whitespace-nowrap">確定率</th>
-                <th className="px-4 py-2.5 text-right font-extrabold whitespace-nowrap">金額合計</th>
-                <th className="px-4 py-2.5 text-right font-extrabold whitespace-nowrap">1件平均</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {data.categoryRows.length === 0 && <tr><td colSpan={8} className="px-4 py-6 text-center text-slate-500 font-bold">この期間の登録はありません</td></tr>}
-              {data.categoryRows.map((row) => (
-                <tr key={row.cat} className="hover:bg-blue-50/30">
-                  <td className="px-4 py-2.5 font-bold text-slate-800 whitespace-nowrap">{row.label}</td>
-                  <td className="px-4 py-2.5 text-right font-extrabold text-blue-600">{row.count}</td>
-                  <td className="px-4 py-2.5 text-right font-bold text-slate-700">{analyticsAvgText(row.monthlyAvg)}</td>
-                  <td className="px-4 py-2.5 text-right font-bold text-slate-600">{row.prevCount}</td>
-                  <td className={`px-4 py-2.5 text-right font-extrabold ${row.yoy === null ? 'text-slate-400' : row.yoy >= 100 ? 'text-emerald-600' : 'text-rose-600'}`}>{analyticsRatioText(row.yoy)}</td>
-                  <td className="px-4 py-2.5 text-right font-bold text-slate-700">{analyticsRatioText(row.doneRate)}</td>
-                  <td className="px-4 py-2.5 text-right font-bold text-slate-700 whitespace-nowrap">{yenK(row.amount)}千円</td>
-                  <td className="px-4 py-2.5 text-right font-bold text-slate-600 whitespace-nowrap">{yenK(row.avgUnitPrice)}千円</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-        <div className="px-4 py-2.5 bg-slate-50 border-t border-slate-100 text-[11px] font-bold text-slate-600">確定率＝確定済・売上済になった件数の割合。入退院（予定）は対象外のため「—」。前年に実績がない期間の前年比も「—」。</div>
-      </AnalyticsCard>
-
-      <AnalyticsCard title="依頼元の区分構成" description="包括・居宅・退院/連携室からの依頼件数の内訳">
-        <div className="p-4 space-y-3">
-          {data.sourceTotal === 0 && <div className="text-center text-slate-500 font-bold py-4">この期間の登録はありません</div>}
-          {data.sourceTotal > 0 && (
-            <>
-              <div className="flex h-6 rounded-lg overflow-hidden border border-slate-200">
-                {sourceSegments.map((seg) => {
-                  const count = data.sourceCount[seg.key] || 0;
-                  if (!count) return null;
-                  return <div key={seg.key} className={seg.color} style={{ width: `${(count / data.sourceTotal) * 100}%` }} title={`${seg.key} ${count}件`} />;
-                })}
-              </div>
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                {sourceSegments.map((seg) => {
-                  const count = data.sourceCount[seg.key] || 0;
-                  return (
-                    <div key={seg.key} className="rounded-lg bg-slate-50 border border-slate-100 px-3 py-2">
-                      <div className="flex items-center gap-1.5 text-[11px] font-extrabold text-slate-600 whitespace-nowrap"><span className={`w-2.5 h-2.5 rounded-sm ${seg.color}`} />{seg.key}</div>
-                      <div className="text-lg font-extrabold text-slate-800 leading-none mt-1">{count}件</div>
-                      <div className="text-[11px] font-bold text-slate-500 mt-0.5">{Math.round((count / data.sourceTotal) * 100)}%</div>
-                    </div>
-                  );
-                })}
-              </div>
-            </>
-          )}
-        </div>
-      </AnalyticsCard>
-
-      <AnalyticsCard title="事業所別 依頼ランキング" description={`登録済みの事業所名で集計。対象 ${data.facilityTotal}事業所${data.unnamedCount > 0 ? ` / 事業所名の未入力 ${data.unnamedCount}件は未集計` : ''}`}>
-        <div className="overflow-x-auto">
-          {/* 事業所名は「特定非営利活動法人〜居宅介護支援事業所」のように長く、
-              760pxだと名前と内訳が3行に潰れる。必要幅で確保して横スクロールさせる。 */}
-          <table className="w-full text-sm min-w-[980px]">
-            <thead className="bg-slate-50 text-slate-700">
-              <tr>
-                <th className="px-4 py-2.5 text-left font-extrabold whitespace-nowrap">順位</th>
-                <th className="px-4 py-2.5 text-left font-extrabold whitespace-nowrap">事業所名</th>
-                <th className="px-4 py-2.5 text-left font-extrabold whitespace-nowrap">区分</th>
-                <th className="px-4 py-2.5 text-right font-extrabold whitespace-nowrap">件数</th>
-                <th className="px-4 py-2.5 text-right font-extrabold whitespace-nowrap">金額</th>
-                <th className="px-4 py-2.5 text-left font-extrabold whitespace-nowrap">内訳</th>
-                <th className="px-4 py-2.5 text-left font-extrabold whitespace-nowrap">担当</th>
-                <th className="px-4 py-2.5 text-left font-extrabold whitespace-nowrap">最終依頼</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {facilities.length === 0 && <tr><td colSpan={8} className="px-4 py-6 text-center text-slate-500 font-bold">この期間に事業所名つきの登録はありません</td></tr>}
-              {facilities.map((row, index) => (
-                <tr key={row.name} className="hover:bg-blue-50/30">
-                  <td className="px-4 py-2.5 font-extrabold text-slate-500 whitespace-nowrap">{index + 1}</td>
-                  <td className="px-4 py-2.5 font-bold text-slate-800">{row.name}</td>
-                  <td className="px-4 py-2.5 font-bold text-slate-600 whitespace-nowrap">{row.mainSource}</td>
-                  <td className="px-4 py-2.5 text-right font-extrabold text-blue-600">{row.count}</td>
-                  <td className="px-4 py-2.5 text-right font-bold text-slate-700 whitespace-nowrap">{yenK(row.amount)}千円</td>
-                  <td className="px-4 py-2.5 font-bold text-slate-600 text-[12px]">{row.topCategories}</td>
-                  <td className="px-4 py-2.5 font-bold text-slate-600 text-[12px]">{row.staffLabel}</td>
-                  <td className="px-4 py-2.5 font-bold text-slate-600 whitespace-nowrap">{row.lastMonth ? formatMonth(row.lastMonth) : '—'}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-        {data.facilityRows.length > 15 && (
-          <div className="px-4 py-3 bg-slate-50 border-t border-slate-100">
-            <button onClick={() => setShowAllFacilities((prev) => !prev)} className="text-sm font-extrabold text-blue-600 hover:text-blue-700">
-              {showAllFacilities ? '上位15事業所だけ表示' : `すべて表示（残り${data.facilityRows.length - 15}事業所）`}
-            </button>
-          </div>
+        {subView !== 'personal' && (
+          <RankingControlSelect label="担当者（概要・レンタル・販売に反映）" value={staffId} onChange={setStaffId}>
+            <option value="all">全員</option>
+            {salespersons.filter((s) => s?.id).map((staff) => <option key={staff.id} value={staff.id}>{staff.name}</option>)}
+          </RankingControlSelect>
         )}
-      </AnalyticsCard>
+      </div>
 
-      <AnalyticsCard title="担当者別の傾向" description="件数・月平均・前年同期比・確定率・取引のあった事業所数">
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm min-w-[680px]">
-            <thead className="bg-slate-50 text-slate-700">
-              <tr>
-                <th className="px-4 py-2.5 text-left font-extrabold whitespace-nowrap">担当者</th>
-                <th className="px-4 py-2.5 text-right font-extrabold whitespace-nowrap">件数</th>
-                <th className="px-4 py-2.5 text-right font-extrabold whitespace-nowrap">月平均</th>
-                <th className="px-4 py-2.5 text-right font-extrabold whitespace-nowrap">前年同期</th>
-                <th className="px-4 py-2.5 text-right font-extrabold whitespace-nowrap">前年比</th>
-                <th className="px-4 py-2.5 text-right font-extrabold whitespace-nowrap">確定率</th>
-                <th className="px-4 py-2.5 text-right font-extrabold whitespace-nowrap">事業所数</th>
-                <th className="px-4 py-2.5 text-right font-extrabold whitespace-nowrap">金額合計</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {data.staffRows.length === 0 && <tr><td colSpan={8} className="px-4 py-6 text-center text-slate-500 font-bold">担当者が登録されていません</td></tr>}
-              {data.staffRows.map((row) => (
-                <tr key={row.id} className="hover:bg-blue-50/30">
-                  <td className="px-4 py-2.5 font-bold text-slate-800 whitespace-nowrap">{row.name}</td>
-                  <td className="px-4 py-2.5 text-right font-extrabold text-blue-600">{row.count}</td>
-                  <td className="px-4 py-2.5 text-right font-bold text-slate-700">{analyticsAvgText(row.monthlyAvg)}</td>
-                  <td className="px-4 py-2.5 text-right font-bold text-slate-600">{row.prevCount}</td>
-                  <td className={`px-4 py-2.5 text-right font-extrabold ${row.yoy === null ? 'text-slate-400' : row.yoy >= 100 ? 'text-emerald-600' : 'text-rose-600'}`}>{analyticsRatioText(row.yoy)}</td>
-                  <td className="px-4 py-2.5 text-right font-bold text-slate-700">{analyticsRatioText(row.doneRate)}</td>
-                  <td className="px-4 py-2.5 text-right font-bold text-slate-700">{row.facilityCount}</td>
-                  <td className="px-4 py-2.5 text-right font-bold text-slate-700 whitespace-nowrap">{yenK(row.amount)}千円</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </AnalyticsCard>
+      <div className="flex bg-white p-1.5 rounded-2xl border border-slate-200 shadow-sm gap-1.5 overflow-x-auto">
+        {ANALYTICS_SUBVIEWS.map((v) => (
+          <button key={v.id} onClick={() => setSubView(v.id)} className={`flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl font-bold text-sm whitespace-nowrap transition-all ${subView === v.id ? 'bg-blue-500 text-white shadow' : 'text-slate-600 hover:bg-slate-50'}`}>
+            <v.icon size={16} />{v.label}
+          </button>
+        ))}
+      </div>
+
+      {subView === 'overview' && (
+        <>
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+            <AnalyticsSummaryCard accent label="依頼件数" value={`${data.totalCount}件`} sub={`${data.periodLabel} / ${data.staffLabel}`} />
+            <AnalyticsSummaryCard label="月平均 依頼件数" value={analyticsAvgText(data.monthlyAvg)} sub={`経過${data.avgDivisor}ヶ月で計算`} />
+            <AnalyticsSummaryCard label="前年同期比" value={analyticsRatioText(data.yoy)} sub={data.previousTotal > 0 ? `前年同期 ${data.previousTotal}件` : '前年データなし'} />
+            <AnalyticsSummaryCard label="金額合計" value={`${yenK(data.totalAmount)}千円`} sub="レンタルは月額・販売は税抜" />
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <AnalyticsCard title="カテゴリ構成比" description="件数ベースの内訳">
+              <div className="p-5"><RatioDonut segments={categoryDonutSegments} /></div>
+            </AnalyticsCard>
+            <AnalyticsCard title={`${branchName}内の担当者構成比`} description="依頼件数ベースの内訳">
+              <div className="p-5"><RatioDonut segments={staffDonutSegments} /></div>
+            </AnalyticsCard>
+          </div>
+
+          <AnalyticsCard title="カテゴリ別の傾向" description="件数・月平均・前年同期比・確定率・1件あたり平均金額">
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm min-w-[720px]">
+                <thead className="bg-slate-50 text-slate-700">
+                  <tr>
+                    <th className="px-4 py-2.5 text-left font-extrabold whitespace-nowrap">カテゴリ</th>
+                    <th className="px-4 py-2.5 text-right font-extrabold whitespace-nowrap">件数</th>
+                    <th className="px-4 py-2.5 text-right font-extrabold whitespace-nowrap">月平均</th>
+                    <th className="px-4 py-2.5 text-right font-extrabold whitespace-nowrap">前年同期</th>
+                    <th className="px-4 py-2.5 text-right font-extrabold whitespace-nowrap">前年比</th>
+                    <th className="px-4 py-2.5 text-right font-extrabold whitespace-nowrap">確定率</th>
+                    <th className="px-4 py-2.5 text-right font-extrabold whitespace-nowrap">金額合計</th>
+                    <th className="px-4 py-2.5 text-right font-extrabold whitespace-nowrap">1件平均</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {data.categoryRows.length === 0 && <tr><td colSpan={8} className="px-4 py-6 text-center text-slate-500 font-bold">この期間の登録はありません</td></tr>}
+                  {data.categoryRows.map((row) => (
+                    <tr key={row.cat} className="hover:bg-blue-50/30">
+                      <td className="px-4 py-2.5 font-bold text-slate-800 whitespace-nowrap">{row.label}</td>
+                      <td className="px-4 py-2.5 text-right font-extrabold text-blue-600">{row.count}</td>
+                      <td className="px-4 py-2.5 text-right font-bold text-slate-700">{analyticsAvgText(row.monthlyAvg)}</td>
+                      <td className="px-4 py-2.5 text-right font-bold text-slate-600">{row.prevCount}</td>
+                      <td className={`px-4 py-2.5 text-right font-extrabold ${row.yoy === null ? 'text-slate-400' : row.yoy >= 100 ? 'text-emerald-600' : 'text-rose-600'}`}>{analyticsRatioText(row.yoy)}</td>
+                      <td className="px-4 py-2.5 text-right font-bold text-slate-700">{analyticsRatioText(row.doneRate)}</td>
+                      <td className="px-4 py-2.5 text-right font-bold text-slate-700 whitespace-nowrap">{yenK(row.amount)}千円</td>
+                      <td className="px-4 py-2.5 text-right font-bold text-slate-600 whitespace-nowrap">{yenK(row.avgUnitPrice)}千円</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="px-4 py-2.5 bg-slate-50 border-t border-slate-100 text-[11px] font-bold text-slate-600">確定率＝確定済・売上済になった件数の割合。金額合計は入院分をマイナスとして相殺済み。前年に実績がない期間の前年比は「—」。</div>
+          </AnalyticsCard>
+
+          <AnalyticsCard title="依頼元の区分構成" description="包括・居宅・退院/連携室からの依頼件数の内訳">
+            <div className="p-4 space-y-3">
+              {data.sourceTotal === 0 && <div className="text-center text-slate-500 font-bold py-4">この期間の登録はありません</div>}
+              {data.sourceTotal > 0 && (
+                <>
+                  <div className="flex h-6 rounded-lg overflow-hidden border border-slate-200">
+                    {sourceSegments.map((seg) => {
+                      const count = data.sourceCount[seg.key] || 0;
+                      if (!count) return null;
+                      return <div key={seg.key} className={seg.color} style={{ width: `${(count / data.sourceTotal) * 100}%` }} title={`${seg.key} ${count}件`} />;
+                    })}
+                  </div>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                    {sourceSegments.map((seg) => {
+                      const count = data.sourceCount[seg.key] || 0;
+                      return (
+                        <div key={seg.key} className="rounded-lg bg-slate-50 border border-slate-100 px-3 py-2">
+                          <div className="flex items-center gap-1.5 text-[11px] font-extrabold text-slate-600 whitespace-nowrap"><span className={`w-2.5 h-2.5 rounded-sm ${seg.color}`} />{seg.key}</div>
+                          <div className="text-lg font-extrabold text-slate-800 leading-none mt-1">{count}件</div>
+                          <div className="text-[11px] font-bold text-slate-500 mt-0.5">{Math.round((count / data.sourceTotal) * 100)}%</div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </>
+              )}
+            </div>
+          </AnalyticsCard>
+
+          <AnalyticsCard title="事業所別 依頼ランキング" description={`登録済みの事業所名で集計。対象 ${data.facilityTotal}事業所${data.unnamedCount > 0 ? ` / 事業所名の未入力 ${data.unnamedCount}件は未集計` : ''}`}>
+            <div className="overflow-x-auto">
+              {/* 事業所名は「特定非営利活動法人〜居宅介護支援事業所」のように長く、
+                  760pxだと名前と内訳が3行に潰れる。必要幅で確保して横スクロールさせる。 */}
+              <table className="w-full text-sm min-w-[980px]">
+                <thead className="bg-slate-50 text-slate-700">
+                  <tr>
+                    <th className="px-4 py-2.5 text-left font-extrabold whitespace-nowrap">順位</th>
+                    <th className="px-4 py-2.5 text-left font-extrabold whitespace-nowrap">事業所名</th>
+                    <th className="px-4 py-2.5 text-left font-extrabold whitespace-nowrap">区分</th>
+                    <th className="px-4 py-2.5 text-right font-extrabold whitespace-nowrap">件数</th>
+                    <th className="px-4 py-2.5 text-right font-extrabold whitespace-nowrap">金額</th>
+                    <th className="px-4 py-2.5 text-left font-extrabold whitespace-nowrap">内訳</th>
+                    <th className="px-4 py-2.5 text-left font-extrabold whitespace-nowrap">担当</th>
+                    <th className="px-4 py-2.5 text-left font-extrabold whitespace-nowrap">最終依頼</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {facilities.length === 0 && <tr><td colSpan={8} className="px-4 py-6 text-center text-slate-500 font-bold">この期間に事業所名つきの登録はありません</td></tr>}
+                  {facilities.map((row, index) => (
+                    <tr key={row.name} className="hover:bg-blue-50/30">
+                      <td className="px-4 py-2.5 font-extrabold text-slate-500 whitespace-nowrap">{index + 1}</td>
+                      <td className="px-4 py-2.5 font-bold text-slate-800">{row.name}</td>
+                      <td className="px-4 py-2.5 font-bold text-slate-600 whitespace-nowrap">{row.mainSource}</td>
+                      <td className="px-4 py-2.5 text-right font-extrabold text-blue-600">{row.count}</td>
+                      <td className="px-4 py-2.5 text-right font-bold text-slate-700 whitespace-nowrap">{yenK(row.amount)}千円</td>
+                      <td className="px-4 py-2.5 font-bold text-slate-600 text-[12px]">{row.topCategories}</td>
+                      <td className="px-4 py-2.5 font-bold text-slate-600 text-[12px]">{row.staffLabel}</td>
+                      <td className="px-4 py-2.5 font-bold text-slate-600 whitespace-nowrap">{row.lastMonth ? formatMonth(row.lastMonth) : '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            {data.facilityRows.length > 15 && (
+              <div className="px-4 py-3 bg-slate-50 border-t border-slate-100">
+                <button onClick={() => setShowAllFacilities((prev) => !prev)} className="text-sm font-extrabold text-blue-600 hover:text-blue-700">
+                  {showAllFacilities ? '上位15事業所だけ表示' : `すべて表示（残り${data.facilityRows.length - 15}事業所）`}
+                </button>
+              </div>
+            )}
+          </AnalyticsCard>
+
+          <AnalyticsCard title="担当者別の傾向" description="件数・月平均・前年同期比・確定率・取引のあった事業所数（上の担当者フィルタに関わらず全員を表示）">
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm min-w-[680px]">
+                <thead className="bg-slate-50 text-slate-700">
+                  <tr>
+                    <th className="px-4 py-2.5 text-left font-extrabold whitespace-nowrap">担当者</th>
+                    <th className="px-4 py-2.5 text-right font-extrabold whitespace-nowrap">件数</th>
+                    <th className="px-4 py-2.5 text-right font-extrabold whitespace-nowrap">月平均</th>
+                    <th className="px-4 py-2.5 text-right font-extrabold whitespace-nowrap">前年同期</th>
+                    <th className="px-4 py-2.5 text-right font-extrabold whitespace-nowrap">前年比</th>
+                    <th className="px-4 py-2.5 text-right font-extrabold whitespace-nowrap">確定率</th>
+                    <th className="px-4 py-2.5 text-right font-extrabold whitespace-nowrap">事業所数</th>
+                    <th className="px-4 py-2.5 text-right font-extrabold whitespace-nowrap">金額合計</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {data.staffRows.length === 0 && <tr><td colSpan={8} className="px-4 py-6 text-center text-slate-500 font-bold">担当者が登録されていません</td></tr>}
+                  {data.staffRows.map((row) => (
+                    <tr key={row.id} className={`hover:bg-blue-50/30 ${staffId !== 'all' && Number(staffId) === Number(row.id) ? 'bg-blue-50/60' : ''}`}>
+                      <td className="px-4 py-2.5 font-bold text-slate-800 whitespace-nowrap">{row.name}</td>
+                      <td className="px-4 py-2.5 text-right font-extrabold text-blue-600">{row.count}</td>
+                      <td className="px-4 py-2.5 text-right font-bold text-slate-700">{analyticsAvgText(row.monthlyAvg)}</td>
+                      <td className="px-4 py-2.5 text-right font-bold text-slate-600">{row.prevCount}</td>
+                      <td className={`px-4 py-2.5 text-right font-extrabold ${row.yoy === null ? 'text-slate-400' : row.yoy >= 100 ? 'text-emerald-600' : 'text-rose-600'}`}>{analyticsRatioText(row.yoy)}</td>
+                      <td className="px-4 py-2.5 text-right font-bold text-slate-700">{analyticsRatioText(row.doneRate)}</td>
+                      <td className="px-4 py-2.5 text-right font-bold text-slate-700">{row.facilityCount}</td>
+                      <td className="px-4 py-2.5 text-right font-bold text-slate-700 whitespace-nowrap">{yenK(row.amount)}千円</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </AnalyticsCard>
+        </>
+      )}
+
+      {subView === 'rental' && (
+        <>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            {RENTAL_CATEGORIES.map((cat) => <AnalyticsCategoryCard key={cat} row={categoryRow(cat)} />)}
+          </div>
+          <AnalyticsCard title="レンタル内の構成比" description="レンタル新規・既存追加・特価ベッドの件数シェア">
+            <div className="p-5"><RatioDonut segments={RENTAL_CATEGORIES.map((cat, i) => ({ label: analyticsCategoryLabel(cat), value: categoryRow(cat).count, color: DONUT_PALETTE[i] }))} /></div>
+          </AnalyticsCard>
+          <AnalyticsCard title="担当者別 レンタル件数ランキング" description="レンタル新規・既存追加・特価ベッドの合計件数（担当者フィルタに関わらず全員）">
+            <AnalyticsRankingBars rows={rentalStaffRanking} unit="件" />
+          </AnalyticsCard>
+        </>
+      )}
+
+      {subView === 'sales' && (
+        <>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            {SALES_ANALYSIS_CATEGORIES.map((cat) => <AnalyticsCategoryCard key={cat} row={categoryRow(cat)} showAmount />)}
+          </div>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <AnalyticsCard title="販売内の構成比（件数）" description="住宅改修・特定福祉用具販売の件数シェア">
+              <div className="p-5"><RatioDonut segments={SALES_ANALYSIS_CATEGORIES.map((cat, i) => ({ label: analyticsCategoryLabel(cat), value: categoryRow(cat).count, color: DONUT_PALETTE[i] }))} /></div>
+            </AnalyticsCard>
+            <AnalyticsCard title="販売内の構成比（金額）" description="住宅改修・特定福祉用具販売の金額シェア">
+              <div className="p-5"><RatioDonut unit="円" segments={SALES_ANALYSIS_CATEGORIES.map((cat, i) => ({ label: analyticsCategoryLabel(cat), value: categoryRow(cat).amount, color: DONUT_PALETTE[i] }))} /></div>
+            </AnalyticsCard>
+          </div>
+          <AnalyticsCard title="担当者別 販売金額ランキング" description="住宅改修・特定福祉用具販売の合計金額（担当者フィルタに関わらず全員）">
+            <AnalyticsRankingBars rows={salesStaffRanking} unit="円" />
+          </AnalyticsCard>
+        </>
+      )}
+
+      {subView === 'personal' && (
+        !personalRow ? (
+          <div className="bg-white border-2 border-dashed border-slate-200 rounded-2xl p-10 text-center text-slate-500 font-bold">担当者がマスタ設定に登録されていません</div>
+        ) : (
+          <>
+            <div className="bg-white p-3 rounded-2xl border border-slate-200 shadow-sm">
+              <RankingControlSelect label="担当者を選択" value={String(effectivePersonalId)} onChange={setPersonalStaffId}>
+                {personalOptions.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
+              </RankingControlSelect>
+            </div>
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+              <AnalyticsSummaryCard accent label="依頼件数" value={`${personalRow.count}件`} sub={data.periodLabel} />
+              <AnalyticsSummaryCard label="金額合計" value={`${yenK(personalRow.amount)}千円`} sub="レンタルは月額・販売は税抜" />
+              <AnalyticsSummaryCard label="確定率" value={analyticsRatioText(personalRow.doneRate)} sub="確定済・売上済の割合" />
+              <AnalyticsSummaryCard label="前年同期比" value={analyticsRatioText(personalRow.yoy)} sub={personalRow.prevCount > 0 ? `前年同期 ${personalRow.prevCount}件` : '前年データなし'} />
+              <AnalyticsSummaryCard label={`${branchName}内シェア`} value={`${Math.round(personalShare)}%`} sub={`全体${data.staffTotalCount}件のうち`} />
+              <AnalyticsSummaryCard label="他担当者平均との比較" value={personalVsAvg === null ? '—' : `${Math.round(personalVsAvg)}%`} sub={personalOthers.length > 0 ? `他${personalOthers.length}名平均 ${Math.round(personalAvgOthers * 10) / 10}件` : '比較対象なし'} />
+              <AnalyticsSummaryCard label="取引事業所数" value={`${personalRow.facilityCount}事業所`} />
+              <AnalyticsSummaryCard label="月平均" value={analyticsAvgText(personalRow.monthlyAvg)} sub={`経過${data.avgDivisor}ヶ月`} />
+            </div>
+            <AnalyticsCard title={`${personalRow.name} さんのカテゴリ構成比`} description="レンタル・住宅改修・特定福祉用具の件数シェア">
+              <div className="p-5"><RatioDonut segments={personalCategoryDonut} /></div>
+            </AnalyticsCard>
+            <AnalyticsCard title="取引事業所 トップ5" description="件数の多い順">
+              <div className="divide-y divide-slate-100">
+                {personalRow.topFacilities.length === 0 && <div className="text-center text-slate-500 font-bold py-6">この期間に事業所名つきの登録はありません</div>}
+                {personalRow.topFacilities.map((f, i) => (
+                  <div key={f.name} className="px-4 py-3 flex items-center justify-between gap-3">
+                    <span className="flex items-center gap-2 min-w-0"><span className="w-5 text-xs font-extrabold text-slate-400 shrink-0">{i + 1}</span><span className="font-bold text-slate-800 truncate">{f.name}</span></span>
+                    <span className="font-extrabold text-blue-600 shrink-0 whitespace-nowrap">{f.count}件</span>
+                  </div>
+                ))}
+              </div>
+            </AnalyticsCard>
+          </>
+        )
+      )}
     </section>
   );
 };
