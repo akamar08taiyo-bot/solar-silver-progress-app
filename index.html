@@ -2149,11 +2149,14 @@ const MainApp = ({ branchSetting }) => {
     const avgDivisor = Math.max(1, elapsedMonths);
     const normalizeCat = (cat) => (isHospitalPlanCategoryName(cat) ? HOSPITAL_PLAN_CATEGORY : cat);
     const staffName = (id) => salespersons.find((s) => Number(s.id) === Number(id))?.name || '未設定';
+    // 入退院（予定）は入院がマイナス・退院がプラスなので、金額はそのまま足すと
+    // 相殺されるはずの入院分まで加算されて総額が過大になる。符号つきの値を使う。
+    const orderAmount = (o) => (isHospitalPlanCategoryName(o.category) ? getHospitalPlanSignedAmount(o) : Number(o.amount || 0));
 
     const categoryRows = allCategories.map((cat) => {
       const catOrders = periodOrders.filter((o) => normalizeCat(o.category) === cat);
       const prevCount = previousOrders.filter((o) => normalizeCat(o.category) === cat).length;
-      const amount = catOrders.reduce((sum, o) => sum + Number(o.amount || 0), 0);
+      const amount = catOrders.reduce((sum, o) => sum + orderAmount(o), 0);
       const doneCnt = catOrders.filter((o) => isCompletedStatus(o.status)).length;
       const isHospital = isHospitalPlanCategoryName(cat);
       return {
@@ -2185,7 +2188,7 @@ const MainApp = ({ branchSetting }) => {
       const entry = facilityMap.get(name);
       const month = getOrderAccountingMonth(o);
       entry.count += 1;
-      entry.amount += Number(o.amount || 0);
+      entry.amount += orderAmount(o);
       if (o.source) entry.sourceCount[o.source] = (entry.sourceCount[o.source] || 0) + 1;
       const catLabel = normalizeCat(o.category);
       entry.categoryCount[catLabel] = (entry.categoryCount[catLabel] || 0) + 1;
@@ -2200,12 +2203,15 @@ const MainApp = ({ branchSetting }) => {
         .map(([c, n]) => `${c === '特定福祉用具販売' ? '特定福祉用具' : c}${n}`).join(' / ')
     })).sort((a, b) => b.count - a.count || b.amount - a.amount);
 
-    const staffRows = salespersons.filter((s) => s?.id).map((staff) => {
+    // 担当者を絞り込んでいるときに全員分の行を出すと、選んでいない担当者が
+    // 一律0件で並んで紛らわしいので、絞り込み中は本人の行だけにする。
+    const staffRows = salespersons.filter((s) => s?.id && (analyticsStaffId === 'all' || Number(s.id) === Number(analyticsStaffId))).map((staff) => {
       const staffOrders = periodOrders.filter((o) => Number(o.salespersonId) === Number(staff.id));
       const prevCount = previousOrders.filter((o) => Number(o.salespersonId) === Number(staff.id)).length;
       const rateTarget = staffOrders.filter((o) => !isHospitalPlanCategoryName(o.category));
       const doneCnt = rateTarget.filter((o) => isCompletedStatus(o.status)).length;
-      const facilities = new Set(staffOrders.map((o) => String(o.careHomeName || '').trim()).filter(Boolean));
+      // 事業所数は事業所別ランキングと同じ母集団にする（一般販売等は対象外）
+      const facilities = new Set(staffOrders.filter((o) => !OTHER_SALES_CATS.includes(o.category)).map((o) => String(o.careHomeName || '').trim()).filter(Boolean));
       return {
         id: staff.id,
         name: staff.name,
@@ -2213,7 +2219,7 @@ const MainApp = ({ branchSetting }) => {
         monthlyAvg: staffOrders.length / avgDivisor,
         prevCount,
         yoy: prevCount > 0 ? (staffOrders.length / prevCount) * 100 : null,
-        amount: staffOrders.reduce((sum, o) => sum + Number(o.amount || 0), 0),
+        amount: staffOrders.reduce((sum, o) => sum + orderAmount(o), 0),
         doneRate: rateTarget.length > 0 ? (doneCnt / rateTarget.length) * 100 : null,
         facilityCount: facilities.size
       };
@@ -2236,7 +2242,7 @@ const MainApp = ({ branchSetting }) => {
       monthlyAvg: totalCount / avgDivisor,
       previousTotal,
       yoy: previousTotal > 0 ? (totalCount / previousTotal) * 100 : null,
-      totalAmount: periodOrders.reduce((sum, o) => sum + Number(o.amount || 0), 0),
+      totalAmount: periodOrders.reduce((sum, o) => sum + orderAmount(o), 0),
       categoryRows,
       facilityRows,
       unnamedCount,
