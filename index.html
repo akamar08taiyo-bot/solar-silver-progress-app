@@ -176,6 +176,7 @@ const getHospitalPlanSignedAmount = (order) => {
   return amount;
 };
 const getHospitalPlanBacklogAmount = (order) => order?.isHospitalPlanReflected === true ? 0 : getHospitalPlanSignedAmount(order);
+const isHospitalPlanVisibleInMonth = (order, month) => !isHospitalPlanCategoryName(order?.category) || !order.hospitalPlanDate || order.hospitalPlanDate.slice(0, 7) === month;
 const yenK = (amount) => Math.floor(Number(amount || 0) / 1000).toLocaleString();
 const formatThousandAmount = (amount) => {
   const value = Number(amount || 0) / 1000;
@@ -1794,7 +1795,7 @@ const MainApp = ({ branchSetting }) => {
   const staffSortIndex = useMemo(() => Object.fromEntries(salespersons.map((staff, index) => [Number(staff.id), index])), [salespersons]);
   const listOrders = useMemo(() => {
     if (activeTab !== 'list' && activeTab !== 'hospital_list') return [];
-    let filtered = currentOrders;
+    let filtered = currentOrders.filter((o) => isHospitalPlanVisibleInMonth(o, currentMonth));
     if (activeTab === 'hospital_list') filtered = filtered.filter((o) => isHospitalPlanCategoryName(o.category));
     if (listStaffId !== 'all') filtered = filtered.filter((o) => Number(o.salespersonId) === Number(listStaffId));
     if (listSourceFilter !== 'すべて') filtered = filtered.filter((o) => o.source === listSourceFilter);
@@ -1828,7 +1829,7 @@ const MainApp = ({ branchSetting }) => {
       if (catA !== catB) return catA - catB;
       return createdValue(a).localeCompare(createdValue(b));
     });
-  }, [activeTab, currentOrders, listSourceFilter, listSortMode, listStaffId, staffSortIndex]);
+  }, [activeTab, currentMonth, currentOrders, listSourceFilter, listSortMode, listStaffId, staffSortIndex]);
 
   const updateStaffField = useCallback(async (id, field, value) => updateDoc(doc(db, ...basePath, 'staff', String(id)), { [field]: value }), [basePath]);
   const handleToggleStaffUpdateConfirm = useCallback(async (id, checked) => {
