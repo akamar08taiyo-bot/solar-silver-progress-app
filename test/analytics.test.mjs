@@ -10,6 +10,12 @@ const SALES_CATEGORIES = ['住宅改修', '特定福祉用具販売', HOSPITAL_P
 const OTHER_SALES_CATS = ['一般販売', '紙おむつ', '消耗品'];
 const SALES_ANALYSIS_CATEGORIES = ['住宅改修', '特定福祉用具販売'];
 const allCategories = [...RENTAL_CATEGORIES, ...SALES_CATEGORIES];
+const SOURCE_ANALYSIS_GROUPS = [
+  { key: 'rental', label: '介護保険レンタル', cats: ['レンタル新規', '既存追加'] },
+  { key: 'specialBed', label: '特価ベッド', cats: ['特価ベッド'] },
+  { key: 'equipment', label: '特定福祉用具', cats: ['特定福祉用具販売'] },
+  { key: 'renovation', label: '住宅改修', cats: ['住宅改修'] }
+];
 
 const isCompletedStatus = (status) => status === '確定済' || status === '売上済';
 const isHospitalPlanCategoryName = (category) => category === HOSPITAL_PLAN_CATEGORY || category === HOSPITAL_PLAN_LEGACY_CATEGORY;
@@ -118,15 +124,17 @@ function buildAnalytics({ orders, salespersons, currentMonth, analyticsPeriod, a
     const categoryBreakdown = {};
     const categoryAmountBreakdown = {};
     const facilityCountMap = {};
-    // 営業員ごとの依頼元区分（包括・居宅の割合）用の内訳。
-    const sourceCount = { 包括: 0, 居宅: 0, '退院/連携室': 0, その他: 0 };
+    // 営業員ごとの依頼元区分（包括・居宅の割合）用の内訳。項目ごとに分けて集計する。
+    const sourceCountByCategory = {};
+    SOURCE_ANALYSIS_GROUPS.forEach((group) => { sourceCountByCategory[group.key] = { 包括: 0, 居宅: 0, '退院/連携室': 0, その他: 0 }; });
     for (const o of staffOrders) {
       const label = normalizeCat(o.category);
       categoryBreakdown[label] = (categoryBreakdown[label] || 0) + 1;
       categoryAmountBreakdown[label] = (categoryAmountBreakdown[label] || 0) + orderAmount(o);
       const name = String(o.careHomeName || '').trim();
       if (name) facilityCountMap[name] = (facilityCountMap[name] || 0) + 1;
-      if (o.source && sourceCount[o.source] !== undefined) sourceCount[o.source] += 1;
+      const sourceGroup = SOURCE_ANALYSIS_GROUPS.find((group) => group.cats.includes(label));
+      if (sourceGroup && o.source && sourceCountByCategory[sourceGroup.key][o.source] !== undefined) sourceCountByCategory[sourceGroup.key][o.source] += 1;
     }
     const topFacilities = Object.entries(facilityCountMap).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([name, count]) => ({ name, count }));
     return {
@@ -142,7 +150,7 @@ function buildAnalytics({ orders, salespersons, currentMonth, analyticsPeriod, a
       categoryBreakdown,
       categoryAmountBreakdown,
       topFacilities,
-      sourceCount
+      sourceCountByCategory
     };
   }).sort((a, b) => b.count - a.count);
   const staffTotalCount = staffRows.reduce((sum, r) => sum + r.count, 0);
@@ -152,6 +160,16 @@ function buildAnalytics({ orders, salespersons, currentMonth, analyticsPeriod, a
     if (o.source && sourceCount[o.source] !== undefined) sourceCount[o.source] += 1;
   }
   const sourceTotal = Object.values(sourceCount).reduce((sum, v) => sum + v, 0);
+
+  const sourceCountByCategory = {};
+  SOURCE_ANALYSIS_GROUPS.forEach((group) => {
+    const groupOrders = periodOrders.filter((o) => group.cats.includes(normalizeCat(o.category)));
+    const counts = { 包括: 0, 居宅: 0, '退院/連携室': 0, その他: 0 };
+    for (const o of groupOrders) {
+      if (o.source && counts[o.source] !== undefined) counts[o.source] += 1;
+    }
+    sourceCountByCategory[group.key] = { label: group.label, count: groupOrders.length, sourceCount: counts };
+  });
 
   const totalCount = periodOrders.length;
   const previousTotal = previousOrders.length;
@@ -172,7 +190,8 @@ function buildAnalytics({ orders, salespersons, currentMonth, analyticsPeriod, a
     staffRows,
     staffTotalCount,
     sourceCount,
-    sourceTotal
+    sourceTotal,
+    sourceCountByCategory
   };
 }
 
@@ -241,9 +260,14 @@ check('田中 確定率(o1確定/o2未=1/2)', tanaka.doneRate, 50);
 check('田中 事業所数', tanaka.facilityCount, 1);
 check('田中 カテゴリ内訳', tanaka.categoryBreakdown, { 'レンタル新規': 2 });
 check('田中 事業所トップ5', tanaka.topFacilities, [{ name: 'A居宅', count: 2 }]);
-check('田中 依頼元区分(居宅2件)', tanaka.sourceCount, { 包括: 0, 居宅: 2, '退院/連携室': 0, その他: 0 });
+// 田中はレンタル新規2件のみ(o1+o2)。介護保険レンタル区分にだけ居宅2件が入り、他の項目は混ざらず0のまま。
+check('田中 介護保険レンタルの依頼元区分(居宅2件)', tanaka.sourceCountByCategory.rental, { 包括: 0, 居宅: 2, '退院/連携室': 0, その他: 0 });
+check('田中 住宅改修の依頼元区分は0', tanaka.sourceCountByCategory.renovation, { 包括: 0, 居宅: 0, '退院/連携室': 0, その他: 0 });
 const sato = a.staffRows.find((r) => r.id === 2);
-check('佐藤 依頼元区分(包括2件)', sato.sourceCount, { 包括: 2, 居宅: 0, '退院/連携室': 0, その他: 0 });
+// 佐藤は住宅改修(o3)とレンタル新規(o4)が1件ずつ。両方とも依頼元は包括だが、項目を混ぜずそれぞれ1件で数える。
+check('佐藤 介護保険レンタルの依頼元区分(包括1件)', sato.sourceCountByCategory.rental, { 包括: 1, 居宅: 0, '退院/連携室': 0, その他: 0 });
+check('佐藤 住宅改修の依頼元区分(包括1件)', sato.sourceCountByCategory.renovation, { 包括: 1, 居宅: 0, '退院/連携室': 0, その他: 0 });
+check('佐藤 特価ベッド・特定福祉用具の依頼元区分は0', [sato.sourceCountByCategory.specialBed, sato.sourceCountByCategory.equipment], [{ 包括: 0, 居宅: 0, '退院/連携室': 0, その他: 0 }, { 包括: 0, 居宅: 0, '退院/連携室': 0, その他: 0 }]);
 check('担当者件数の合計', a.staffTotalCount, a.staffRows.reduce((s, r) => s + r.count, 0));
 
 // --- 区分構成（一般販売のo6は対象外） ---
@@ -251,6 +275,15 @@ check('区分 居宅', a.sourceCount['居宅'], 2);
 check('区分 包括', a.sourceCount['包括'], 2);
 check('区分 その他', a.sourceCount['その他'], 0);
 check('区分 合計', a.sourceTotal, 4);
+
+// --- 項目ごとの依頼元区分（介護保険レンタル・特価ベッド・特定福祉用具・住宅改修を混ぜない） ---
+check('介護保険レンタル 件数', a.sourceCountByCategory.rental.count, 3);
+check('介護保険レンタル 居宅', a.sourceCountByCategory.rental.sourceCount['居宅'], 2);
+check('介護保険レンタル 包括', a.sourceCountByCategory.rental.sourceCount['包括'], 1);
+check('住宅改修 件数', a.sourceCountByCategory.renovation.count, 1);
+check('住宅改修 包括', a.sourceCountByCategory.renovation.sourceCount['包括'], 1);
+check('特価ベッド 件数(登録なし)', a.sourceCountByCategory.specialBed.count, 0);
+check('特定福祉用具 件数(登録なし)', a.sourceCountByCategory.equipment.count, 0);
 
 // --- 担当者フィルタは概要・レンタル・販売の集計だけに効く。staffRowsは常に全員 ---
 const solo = buildAnalytics({ ...base, analyticsStaffId: 1 });
@@ -313,7 +346,7 @@ check('0件 カテゴリ行は空', empty.categoryRows.length, 0);
 check('0件 区分合計', empty.sourceTotal, 0);
 check('0件 担当者行は残る', empty.staffRows.length, 2);
 check('0件 担当者確定率はnull', empty.staffRows[0].doneRate, null);
-check('0件 担当者依頼元区分は全て0', empty.staffRows[0].sourceCount, { 包括: 0, 居宅: 0, '退院/連携室': 0, その他: 0 });
+check('0件 担当者依頼元区分は項目ごとに全て0', empty.staffRows[0].sourceCountByCategory.rental, { 包括: 0, 居宅: 0, '退院/連携室': 0, その他: 0 });
 
 // === ユーザー指示「分析に入院や消耗品などは不要」（2026-09-08）の回帰防止 ===
 // 入退院（予定）・一般販売・紙おむつ・消耗品は、登録があっても分析には一切出てこないこと。
@@ -336,7 +369,7 @@ check('除外カテゴリの事業所は事業所別ランキングに出ない'
 check('除外カテゴリの担当者件数は0', excluded.staffRows.find((r) => r.id === 1).count, 0);
 check('除外カテゴリの担当者カテゴリ内訳は空', excluded.staffRows.find((r) => r.id === 1).categoryBreakdown, {});
 check('除外カテゴリの担当者トップ事業所は空', excluded.staffRows.find((r) => r.id === 1).topFacilities, []);
-check('除外カテゴリの担当者依頼元区分も全て0', excluded.staffRows.find((r) => r.id === 1).sourceCount, { 包括: 0, 居宅: 0, '退院/連携室': 0, その他: 0 });
+check('除外カテゴリの担当者依頼元区分も項目ごとに全て0', excluded.staffRows.find((r) => r.id === 1).sourceCountByCategory.rental, { 包括: 0, 居宅: 0, '退院/連携室': 0, その他: 0 });
 check('除外カテゴリの区分構成にも入らない', excluded.sourceTotal, 0);
 
 // レンタル・住改・特定福祉用具は引き続き分析対象

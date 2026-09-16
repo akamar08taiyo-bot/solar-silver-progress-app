@@ -97,6 +97,14 @@ const OTHER_SALES_CATS = ['一般販売', '紙おむつ', '消耗品'];
 const APPLICATION_MARK_CATEGORIES = ['住宅改修', '特定福祉用具販売'];
 // 分析タブ用。住宅改修・特定福祉用具は金額ベース、レンタル系は件数ベースで見せ方が違うため分けて扱う。
 const SALES_ANALYSIS_CATEGORIES = ['住宅改修', '特定福祉用具販売'];
+// 依頼元区分（包括・居宅の割合）の分析用。介護保険レンタル・特価ベッド・特定福祉用具・住宅改修を
+// 混ぜて集計すると項目ごとの傾向が見えなくなるため、項目ごとに分けて集計する（ユーザー指示）。
+const SOURCE_ANALYSIS_GROUPS = [
+  { key: 'rental', label: '介護保険レンタル', cats: ['レンタル新規', '既存追加'] },
+  { key: 'specialBed', label: '特価ベッド', cats: ['特価ベッド'] },
+  { key: 'equipment', label: '特定福祉用具', cats: ['特定福祉用具販売'] },
+  { key: 'renovation', label: '住宅改修', cats: ['住宅改修'] }
+];
 const DONUT_PALETTE = ['#3b82f6', '#10b981', '#f59e0b', '#ec4899', '#8b5cf6', '#14b8a6', '#f43f5e', '#64748b'];
 const allCategories = [...RENTAL_CATEGORIES, ...SALES_CATEGORIES];
 const sources = ['包括', '居宅', '退院/連携室', 'その他'];
@@ -2220,15 +2228,18 @@ const MainApp = ({ branchSetting }) => {
       const categoryBreakdown = {};
       const categoryAmountBreakdown = {};
       const facilityCountMap = {};
-      // 営業員ごとの依頼元区分（包括・居宅の割合）用の内訳。
-      const sourceCount = { 包括: 0, 居宅: 0, '退院/連携室': 0, その他: 0 };
+      // 営業員ごとの依頼元区分（包括・居宅の割合）用の内訳。介護保険レンタル・特価ベッド・
+      // 特定福祉用具・住宅改修を混ぜず、項目ごとに分けて集計する（ユーザー指示）。
+      const sourceCountByCategory = {};
+      SOURCE_ANALYSIS_GROUPS.forEach((group) => { sourceCountByCategory[group.key] = { 包括: 0, 居宅: 0, '退院/連携室': 0, その他: 0 }; });
       for (const o of staffOrders) {
         const label = normalizeCat(o.category);
         categoryBreakdown[label] = (categoryBreakdown[label] || 0) + 1;
         categoryAmountBreakdown[label] = (categoryAmountBreakdown[label] || 0) + orderAmount(o);
         const name = String(o.careHomeName || '').trim();
         if (name) facilityCountMap[name] = (facilityCountMap[name] || 0) + 1;
-        if (o.source && sourceCount[o.source] !== undefined) sourceCount[o.source] += 1;
+        const sourceGroup = SOURCE_ANALYSIS_GROUPS.find((group) => group.cats.includes(label));
+        if (sourceGroup && o.source && sourceCountByCategory[sourceGroup.key][o.source] !== undefined) sourceCountByCategory[sourceGroup.key][o.source] += 1;
       }
       const topFacilities = Object.entries(facilityCountMap).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([name, count]) => ({ name, count }));
       return {
@@ -2244,7 +2255,7 @@ const MainApp = ({ branchSetting }) => {
         categoryBreakdown,
         categoryAmountBreakdown,
         topFacilities,
-        sourceCount
+        sourceCountByCategory
       };
     }).sort((a, b) => b.count - a.count);
     const staffTotalCount = staffRows.reduce((sum, r) => sum + r.count, 0);
@@ -2254,6 +2265,18 @@ const MainApp = ({ branchSetting }) => {
       if (o.source && sourceCount[o.source] !== undefined) sourceCount[o.source] += 1;
     }
     const sourceTotal = Object.values(sourceCount).reduce((sum, v) => sum + v, 0);
+
+    // 営業所全体の依頼元区分を、介護保険レンタル・特価ベッド・特定福祉用具・住宅改修の
+    // 項目ごとに分けて集計する（全項目を混ぜた割合は傾向が見えなくなるため出さない、ユーザー指示）。
+    const sourceCountByCategory = {};
+    SOURCE_ANALYSIS_GROUPS.forEach((group) => {
+      const groupOrders = periodOrders.filter((o) => group.cats.includes(normalizeCat(o.category)));
+      const counts = { 包括: 0, 居宅: 0, '退院/連携室': 0, その他: 0 };
+      for (const o of groupOrders) {
+        if (o.source && counts[o.source] !== undefined) counts[o.source] += 1;
+      }
+      sourceCountByCategory[group.key] = { label: group.label, count: groupOrders.length, sourceCount: counts };
+    });
 
     const totalCount = periodOrders.length;
     const previousTotal = previousOrders.length;
@@ -2274,7 +2297,8 @@ const MainApp = ({ branchSetting }) => {
       staffRows,
       staffTotalCount,
       sourceCount,
-      sourceTotal
+      sourceTotal,
+      sourceCountByCategory
     };
   }, [BRANCH_NAME, analyticsPeriod, analyticsStaffId, currentMonth, orders, salespersons]);
 
@@ -2761,79 +2785,83 @@ const AnalyticsView = ({ data, salespersons, period, setPeriod, staffId, setStaf
             <div className="px-4 py-2.5 bg-slate-50 border-t border-slate-100 text-[11px] font-bold text-slate-600">確定率＝確定済・売上済になった件数の割合。金額合計は入院分をマイナスとして相殺済み。前年に実績がない期間の前年比は「—」。</div>
           </AnalyticsCard>
 
-          <AnalyticsCard title="依頼元の区分構成" description={`${branchName}全体の、包括・居宅・退院/連携室からの依頼件数の内訳`}>
-            <div className="p-4 space-y-3">
-              {data.sourceTotal === 0 && <div className="text-center text-slate-500 font-bold py-4">この期間の登録はありません</div>}
-              {data.sourceTotal > 0 && (
-                <>
-                  <div className="flex h-6 rounded-lg overflow-hidden border border-slate-200">
-                    {sourceSegments.map((seg) => {
-                      const count = data.sourceCount[seg.key] || 0;
-                      if (!count) return null;
-                      return <div key={seg.key} className={seg.color} style={{ width: `${(count / data.sourceTotal) * 100}%` }} title={`${seg.key} ${count}件`} />;
-                    })}
-                  </div>
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                    {sourceSegments.map((seg) => {
-                      const count = data.sourceCount[seg.key] || 0;
-                      return (
-                        <div key={seg.key} className="rounded-lg bg-slate-50 border border-slate-100 px-3 py-2">
-                          <div className="flex items-center gap-1.5 text-[11px] font-extrabold text-slate-600 whitespace-nowrap"><span className={`w-2.5 h-2.5 rounded-sm ${seg.color}`} />{seg.key}</div>
-                          <div className="text-lg font-extrabold text-slate-800 leading-none mt-1">{count}件</div>
-                          <div className="text-[11px] font-bold text-slate-500 mt-0.5">{Math.round((count / data.sourceTotal) * 100)}%</div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </>
-              )}
-            </div>
-          </AnalyticsCard>
-
-          <AnalyticsCard title="営業員別の依頼内訳（包括・居宅の割合）" description={`${branchName}の担当者ごとに、依頼元区分（包括・居宅・連携室・その他）の件数と割合を比較`}>
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm min-w-[820px]">
-                <thead className="bg-slate-50 text-slate-700">
-                  <tr>
-                    <th className="px-4 py-2.5 text-left font-extrabold whitespace-nowrap">営業員</th>
-                    <th className="px-4 py-2.5 text-right font-extrabold whitespace-nowrap">件数</th>
-                    <th className="px-4 py-2.5 text-left font-extrabold whitespace-nowrap">内訳</th>
-                    <th className="px-4 py-2.5 text-right font-extrabold whitespace-nowrap">包括</th>
-                    <th className="px-4 py-2.5 text-right font-extrabold whitespace-nowrap">居宅</th>
-                    <th className="px-4 py-2.5 text-right font-extrabold whitespace-nowrap">連携室</th>
-                    <th className="px-4 py-2.5 text-right font-extrabold whitespace-nowrap">その他</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {data.staffRows.length === 0 && <tr><td colSpan={7} className="px-4 py-6 text-center text-slate-500 font-bold">担当者が登録されていません</td></tr>}
-                  {data.staffRows.map((row) => {
-                    const rowSourceTotal = sourceSegments.reduce((sum, seg) => sum + (row.sourceCount[seg.key] || 0), 0);
-                    const rowPct = (key) => rowSourceTotal ? Math.round(((row.sourceCount[key] || 0) / rowSourceTotal) * 100) : 0;
-                    return (
-                      <tr key={row.id} className={`hover:bg-blue-50/30 ${staffId !== 'all' && Number(staffId) === Number(row.id) ? 'bg-blue-50/60' : ''}`}>
-                        <td className="px-4 py-2.5 font-bold text-slate-800 whitespace-nowrap">{row.name}</td>
-                        <td className="px-4 py-2.5 text-right font-extrabold text-blue-600">{row.count}</td>
-                        <td className="px-4 py-2.5">
-                          <div className="flex h-4 w-full min-w-[120px] rounded-md overflow-hidden border border-slate-200">
-                            {rowSourceTotal === 0 && <div className="w-full bg-slate-100" />}
-                            {sourceSegments.map((seg) => {
-                              const count = row.sourceCount[seg.key] || 0;
-                              if (!count) return null;
-                              return <div key={seg.key} className={seg.color} style={{ width: `${(count / rowSourceTotal) * 100}%` }} title={`${seg.key} ${count}件`} />;
-                            })}
-                          </div>
-                        </td>
-                        <td className="px-4 py-2.5 text-right font-bold text-slate-700 whitespace-nowrap">{row.sourceCount['包括'] || 0}件 / {rowPct('包括')}%</td>
-                        <td className="px-4 py-2.5 text-right font-bold text-slate-700 whitespace-nowrap">{row.sourceCount['居宅'] || 0}件 / {rowPct('居宅')}%</td>
-                        <td className="px-4 py-2.5 text-right font-bold text-slate-600 whitespace-nowrap">{row.sourceCount['退院/連携室'] || 0}件 / {rowPct('退院/連携室')}%</td>
-                        <td className="px-4 py-2.5 text-right font-bold text-slate-500 whitespace-nowrap">{row.sourceCount['その他'] || 0}件 / {rowPct('その他')}%</td>
+          {SOURCE_ANALYSIS_GROUPS.map((group) => {
+            const branchGroup = data.sourceCountByCategory[group.key];
+            const branchTotal = sourceSegments.reduce((sum, seg) => sum + (branchGroup.sourceCount[seg.key] || 0), 0);
+            return (
+              <AnalyticsCard key={group.key} title={`${group.label}の依頼元区分（包括・居宅の割合）`} description={`${branchName}全体 ${branchGroup.count}件と、担当者ごとの内訳（他の項目とは混ぜずに集計）`}>
+                <div className="p-4 space-y-3 border-b border-slate-100">
+                  {branchTotal === 0 && <div className="text-center text-slate-500 font-bold py-4">この期間の登録はありません</div>}
+                  {branchTotal > 0 && (
+                    <>
+                      <div className="flex h-6 rounded-lg overflow-hidden border border-slate-200">
+                        {sourceSegments.map((seg) => {
+                          const count = branchGroup.sourceCount[seg.key] || 0;
+                          if (!count) return null;
+                          return <div key={seg.key} className={seg.color} style={{ width: `${(count / branchTotal) * 100}%` }} title={`${seg.key} ${count}件`} />;
+                        })}
+                      </div>
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                        {sourceSegments.map((seg) => {
+                          const count = branchGroup.sourceCount[seg.key] || 0;
+                          return (
+                            <div key={seg.key} className="rounded-lg bg-slate-50 border border-slate-100 px-3 py-2">
+                              <div className="flex items-center gap-1.5 text-[11px] font-extrabold text-slate-600 whitespace-nowrap"><span className={`w-2.5 h-2.5 rounded-sm ${seg.color}`} />{seg.key}</div>
+                              <div className="text-lg font-extrabold text-slate-800 leading-none mt-1">{count}件</div>
+                              <div className="text-[11px] font-bold text-slate-500 mt-0.5">{Math.round((count / branchTotal) * 100)}%</div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </>
+                  )}
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm min-w-[820px]">
+                    <thead className="bg-slate-50 text-slate-700">
+                      <tr>
+                        <th className="px-4 py-2.5 text-left font-extrabold whitespace-nowrap">営業員</th>
+                        <th className="px-4 py-2.5 text-right font-extrabold whitespace-nowrap">件数</th>
+                        <th className="px-4 py-2.5 text-left font-extrabold whitespace-nowrap">内訳</th>
+                        <th className="px-4 py-2.5 text-right font-extrabold whitespace-nowrap">包括</th>
+                        <th className="px-4 py-2.5 text-right font-extrabold whitespace-nowrap">居宅</th>
+                        <th className="px-4 py-2.5 text-right font-extrabold whitespace-nowrap">連携室</th>
+                        <th className="px-4 py-2.5 text-right font-extrabold whitespace-nowrap">その他</th>
                       </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          </AnalyticsCard>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {data.staffRows.length === 0 && <tr><td colSpan={7} className="px-4 py-6 text-center text-slate-500 font-bold">担当者が登録されていません</td></tr>}
+                      {data.staffRows.map((row) => {
+                        const rowSource = row.sourceCountByCategory[group.key];
+                        const rowTotal = sourceSegments.reduce((sum, seg) => sum + (rowSource[seg.key] || 0), 0);
+                        const rowPct = (key) => rowTotal ? Math.round(((rowSource[key] || 0) / rowTotal) * 100) : 0;
+                        return (
+                          <tr key={row.id} className={`hover:bg-blue-50/30 ${staffId !== 'all' && Number(staffId) === Number(row.id) ? 'bg-blue-50/60' : ''}`}>
+                            <td className="px-4 py-2.5 font-bold text-slate-800 whitespace-nowrap">{row.name}</td>
+                            <td className="px-4 py-2.5 text-right font-extrabold text-blue-600">{rowTotal}</td>
+                            <td className="px-4 py-2.5">
+                              <div className="flex h-4 w-full min-w-[120px] rounded-md overflow-hidden border border-slate-200">
+                                {rowTotal === 0 && <div className="w-full bg-slate-100" />}
+                                {sourceSegments.map((seg) => {
+                                  const count = rowSource[seg.key] || 0;
+                                  if (!count) return null;
+                                  return <div key={seg.key} className={seg.color} style={{ width: `${(count / rowTotal) * 100}%` }} title={`${seg.key} ${count}件`} />;
+                                })}
+                              </div>
+                            </td>
+                            <td className="px-4 py-2.5 text-right font-bold text-slate-700 whitespace-nowrap">{rowSource['包括'] || 0}件 / {rowPct('包括')}%</td>
+                            <td className="px-4 py-2.5 text-right font-bold text-slate-700 whitespace-nowrap">{rowSource['居宅'] || 0}件 / {rowPct('居宅')}%</td>
+                            <td className="px-4 py-2.5 text-right font-bold text-slate-600 whitespace-nowrap">{rowSource['退院/連携室'] || 0}件 / {rowPct('退院/連携室')}%</td>
+                            <td className="px-4 py-2.5 text-right font-bold text-slate-500 whitespace-nowrap">{rowSource['その他'] || 0}件 / {rowPct('その他')}%</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </AnalyticsCard>
+            );
+          })}
 
           <AnalyticsCard title="事業所別 依頼ランキング" description={`登録済みの事業所名で集計。対象 ${data.facilityTotal}事業所${data.unnamedCount > 0 ? ` / 事業所名の未入力 ${data.unnamedCount}件は未集計` : ''}`}>
             <div className="overflow-x-auto">
