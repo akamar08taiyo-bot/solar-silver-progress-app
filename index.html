@@ -105,6 +105,12 @@ const SOURCE_ANALYSIS_GROUPS = [
   { key: 'equipment', label: '特定福祉用具', cats: ['特定福祉用具販売'] },
   { key: 'renovation', label: '住宅改修', cats: ['住宅改修'] }
 ];
+const SOURCE_SEGMENTS = [
+  { key: '包括', color: 'bg-blue-400' },
+  { key: '居宅', color: 'bg-emerald-400' },
+  { key: '退院/連携室', color: 'bg-amber-400' },
+  { key: 'その他', color: 'bg-slate-300' }
+];
 const DONUT_PALETTE = ['#3b82f6', '#10b981', '#f59e0b', '#ec4899', '#8b5cf6', '#14b8a6', '#f43f5e', '#64748b'];
 const allCategories = [...RENTAL_CATEGORIES, ...SALES_CATEGORIES];
 const sources = ['包括', '居宅', '退院/連携室', 'その他'];
@@ -2639,23 +2645,51 @@ const RatioDonut = ({ segments, unit = '件', size = 132 }) => {
 };
 
 // レンタル/販売タブでカテゴリごとの主要指標を1枚にまとめるカード。
-const AnalyticsCategoryCard = ({ row, showAmount = false }) => (
-  <div className="bg-white border-2 border-slate-200 rounded-2xl p-5 shadow-sm space-y-3">
-    <div className="font-extrabold text-slate-900 text-lg leading-tight">{row.label}</div>
-    <div className="grid grid-cols-2 gap-2.5">
-      <div className="bg-blue-50 border border-blue-100 rounded-xl px-3 py-2"><div className="text-[10px] font-extrabold text-blue-600 uppercase tracking-wider">件数</div><div className="text-xl font-extrabold text-blue-700 mt-0.5">{row.count}件</div></div>
-      <div className="bg-slate-50 border border-slate-100 rounded-xl px-3 py-2"><div className="text-[10px] font-extrabold text-slate-500 uppercase tracking-wider">月平均</div><div className="text-xl font-extrabold text-slate-800 mt-0.5">{analyticsAvgText(row.monthlyAvg)}</div></div>
-      <div className="bg-slate-50 border border-slate-100 rounded-xl px-3 py-2"><div className="text-[10px] font-extrabold text-slate-500 uppercase tracking-wider">前年比</div><div className={`text-xl font-extrabold mt-0.5 ${row.yoy === null ? 'text-slate-400' : row.yoy >= 100 ? 'text-emerald-600' : 'text-rose-600'}`}>{analyticsRatioText(row.yoy)}</div></div>
-      <div className="bg-slate-50 border border-slate-100 rounded-xl px-3 py-2"><div className="text-[10px] font-extrabold text-slate-500 uppercase tracking-wider">確定率</div><div className="text-xl font-extrabold text-slate-800 mt-0.5">{analyticsRatioText(row.doneRate)}</div></div>
-    </div>
-    {showAmount && (
-      <div className="grid grid-cols-2 gap-2.5 pt-2 border-t border-slate-100">
-        <div><div className="text-[10px] font-extrabold text-slate-500 uppercase tracking-wider">金額合計</div><div className="text-base font-extrabold text-slate-800 mt-0.5">{yenK(row.amount)}千円</div></div>
-        <div><div className="text-[10px] font-extrabold text-slate-500 uppercase tracking-wider">1件平均</div><div className="text-base font-extrabold text-slate-800 mt-0.5">{yenK(row.avgUnitPrice)}千円</div></div>
+const AnalyticsCategoryCard = ({ row, showAmount = false, sourceGroup = null }) => {
+  const sourceTotal = sourceGroup ? SOURCE_SEGMENTS.reduce((sum, seg) => sum + (sourceGroup.sourceCount[seg.key] || 0), 0) : 0;
+  return (
+    <div className="bg-white border-2 border-slate-200 rounded-2xl p-5 shadow-sm space-y-3">
+      <div className="font-extrabold text-slate-900 text-lg leading-tight">{row.label}</div>
+      <div className="grid grid-cols-2 gap-2.5">
+        <div className="bg-blue-50 border border-blue-100 rounded-xl px-3 py-2"><div className="text-[10px] font-extrabold text-blue-600 uppercase tracking-wider">件数</div><div className="text-xl font-extrabold text-blue-700 mt-0.5">{row.count}件</div></div>
+        <div className="bg-slate-50 border border-slate-100 rounded-xl px-3 py-2"><div className="text-[10px] font-extrabold text-slate-500 uppercase tracking-wider">月平均</div><div className="text-xl font-extrabold text-slate-800 mt-0.5">{analyticsAvgText(row.monthlyAvg)}</div></div>
+        <div className="bg-slate-50 border border-slate-100 rounded-xl px-3 py-2"><div className="text-[10px] font-extrabold text-slate-500 uppercase tracking-wider">前年比</div><div className={`text-xl font-extrabold mt-0.5 ${row.yoy === null ? 'text-slate-400' : row.yoy >= 100 ? 'text-emerald-600' : 'text-rose-600'}`}>{analyticsRatioText(row.yoy)}</div></div>
+        <div className="bg-slate-50 border border-slate-100 rounded-xl px-3 py-2"><div className="text-[10px] font-extrabold text-slate-500 uppercase tracking-wider">確定率</div><div className="text-xl font-extrabold text-slate-800 mt-0.5">{analyticsRatioText(row.doneRate)}</div></div>
       </div>
-    )}
-  </div>
-);
+      {showAmount && (
+        <div className="grid grid-cols-2 gap-2.5 pt-2 border-t border-slate-100">
+          <div><div className="text-[10px] font-extrabold text-slate-500 uppercase tracking-wider">金額合計</div><div className="text-base font-extrabold text-slate-800 mt-0.5">{yenK(row.amount)}千円</div></div>
+          <div><div className="text-[10px] font-extrabold text-slate-500 uppercase tracking-wider">1件平均</div><div className="text-base font-extrabold text-slate-800 mt-0.5">{yenK(row.avgUnitPrice)}千円</div></div>
+        </div>
+      )}
+      {sourceGroup && (
+        <div className="pt-2 border-t border-slate-100 space-y-2">
+          <div className="text-[10px] font-extrabold text-slate-500 uppercase tracking-wider">依頼元区分（包括・居宅の割合）</div>
+          {sourceTotal === 0 ? (
+            <div className="text-xs font-bold text-slate-400">この期間の登録はありません</div>
+          ) : (
+            <>
+              <div className="flex h-3 rounded-md overflow-hidden border border-slate-200">
+                {SOURCE_SEGMENTS.map((seg) => {
+                  const count = sourceGroup.sourceCount[seg.key] || 0;
+                  if (!count) return null;
+                  return <div key={seg.key} className={seg.color} style={{ width: `${(count / sourceTotal) * 100}%` }} title={`${seg.key} ${count}件`} />;
+                })}
+              </div>
+              <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs font-extrabold text-slate-700">
+                {SOURCE_SEGMENTS.map((seg) => {
+                  const count = sourceGroup.sourceCount[seg.key] || 0;
+                  if (!count) return null;
+                  return <span key={seg.key}>{seg.key} {count}件（{Math.round((count / sourceTotal) * 100)}%）</span>;
+                })}
+              </div>
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+};
 
 // 担当者ランキングの横棒。件数・金額どちらでも使う。
 const AnalyticsRankingBars = ({ rows, unit = '件' }) => {
@@ -2689,12 +2723,7 @@ const AnalyticsView = ({ data, salespersons, period, setPeriod, staffId, setStaf
   const [showAllFacilities, setShowAllFacilities] = useState(false);
   const [personalStaffId, setPersonalStaffId] = useState('');
   const facilities = showAllFacilities ? data.facilityRows : data.facilityRows.slice(0, 15);
-  const sourceSegments = [
-    { key: '包括', color: 'bg-blue-400' },
-    { key: '居宅', color: 'bg-emerald-400' },
-    { key: '退院/連携室', color: 'bg-amber-400' },
-    { key: 'その他', color: 'bg-slate-300' }
-  ];
+  const sourceSegments = SOURCE_SEGMENTS;
   const categoryDonutSegments = data.categoryRows.map((row, i) => ({ label: row.label, value: row.count, color: DONUT_PALETTE[i % DONUT_PALETTE.length] }));
   const staffDonutSegments = data.staffRows.map((row, i) => ({ label: row.name, value: row.count, color: DONUT_PALETTE[i % DONUT_PALETTE.length] }));
   const categoryRow = (cat) => data.categoryRows.find((r) => r.cat === cat) || { cat, label: analyticsCategoryLabel(cat), count: 0, monthlyAvg: 0, yoy: null, doneRate: null, amount: 0, avgUnitPrice: 0 };
@@ -2945,7 +2974,7 @@ const AnalyticsView = ({ data, salespersons, period, setPeriod, staffId, setStaf
       {subView === 'rental' && (
         <>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            {RENTAL_CATEGORIES.map((cat) => <AnalyticsCategoryCard key={cat} row={categoryRow(cat)} />)}
+            {RENTAL_CATEGORIES.map((cat) => <AnalyticsCategoryCard key={cat} row={categoryRow(cat)} sourceGroup={cat === '特価ベッド' ? data.sourceCountByCategory.specialBed : null} />)}
           </div>
           <AnalyticsCard title="レンタル内の構成比" description="レンタル新規・既存追加・特価ベッドの件数シェア">
             <div className="p-5"><RatioDonut segments={RENTAL_CATEGORIES.map((cat, i) => ({ label: analyticsCategoryLabel(cat), value: categoryRow(cat).count, color: DONUT_PALETTE[i] }))} /></div>
