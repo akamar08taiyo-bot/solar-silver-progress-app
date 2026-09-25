@@ -165,6 +165,9 @@ const getStatusesByCategory = (cat) => {
 };
 const isCompletedStatus = (status) => status === '確定済' || status === '売上済';
 const isHospitalPlanCategoryName = (category) => category === HOSPITAL_PLAN_CATEGORY || category === HOSPITAL_PLAN_LEGACY_CATEGORY;
+// 月額/半月の切替が意味を持つ区分（入力画面でも切替ボタンを出している区分）。
+// これ以外（特価ベッド・住宅改修・特定福祉用具・その他販売）は常に月額（入力した金額そのまま）で登録する。
+const canUseHalfBilling = (category) => (RENTAL_CATEGORIES.includes(category) && category !== '特価ベッド') || isHospitalPlanCategoryName(category);
 const getHospitalPlanSignedAmount = (order) => {
   if (!isHospitalPlanCategoryName(order?.category)) return 0;
   const amount = Number(order.amount || 0);
@@ -688,7 +691,9 @@ const NewEntryForm = React.memo(({ salespersons, onSubmit, selectedStaffId, onSt
   const categoryButtonClass = useCallback((category) => `min-h-[74px] sm:min-h-[88px] flex items-center justify-center py-3 sm:py-4 px-1 rounded-xl font-bold text-[10px] sm:text-sm border-2 transition-all ${data.category === category ? 'bg-blue-500 border-blue-500 text-white shadow-lg scale-105' : 'bg-white border-slate-200 text-slate-700 hover:border-blue-400'}`, [data.category]);
   const handleCategorySelect = useCallback((category) => {
     const isOther = OTHER_SALES_CATS.includes(category);
-    setData((prev) => ({ ...prev, category, status: getStatusesByCategory(category)[0], source: isOther ? 'その他' : (prev.source === 'その他' ? sources[0] : prev.source), careHomeName: isOther ? '' : prev.careHomeName }));
+    // 月額/半月ボタンを出さない区分へ切り替えたら月額に戻す。以前は直前に選んだ「半月」が
+    // 見えないまま残り、住宅改修・特定福祉用具などの金額が半額で登録されていた。
+    setData((prev) => ({ ...prev, category, status: getStatusesByCategory(category)[0], source: isOther ? 'その他' : (prev.source === 'その他' ? sources[0] : prev.source), careHomeName: isOther ? '' : prev.careHomeName, billingType: canUseHalfBilling(category) ? prev.billingType : 'full' }));
   }, []);
   const handleOptionalToggle = useCallback(() => {
     setShowOptionalCategories((open) => {
@@ -799,8 +804,16 @@ const OrderRow = React.memo(({ order, onUpdate, onDelete, salespersons = [] }) =
     if (order.billingType === billingType) return;
     const amount = Number(order.amount || 0);
     await onUpdate(order.id, 'billingType', billingType);
-    if (billingType === 'half' && order.billingType !== 'exchange') await onUpdate(order.id, 'amount', Math.floor(amount / 2));
-    if (billingType === 'full' && order.billingType === 'half') await onUpdate(order.id, 'amount', amount * 2);
+    if (billingType === 'half' && order.billingType !== 'exchange') {
+      // 月額に戻したときに元の金額へ正確に戻せるよう、半額にする前の金額を残す
+      // （以前は 3,555円→1,777円→3,554円 のように奇数の金額で1円ずれていた）
+      await onUpdate(order.id, 'fullAmount', amount);
+      await onUpdate(order.id, 'amount', Math.floor(amount / 2));
+    }
+    if (billingType === 'full' && order.billingType === 'half') {
+      const full = Number(order.fullAmount);
+      await onUpdate(order.id, 'amount', full && Math.floor(full / 2) === amount ? full : amount * 2);
+    }
   };
 
   return (
@@ -1866,9 +1879,11 @@ const MainApp = ({ branchSetting }) => {
   const handleEntrySubmit = useCallback(async (data) => {
     const newId = `order_${Date.now()}`;
     let finalAmount = Number(data.amount || 0);
-    if (data.billingType === 'half') finalAmount = Math.floor(finalAmount / 2);
+    // 半月計算は切替ボタンを出している区分だけに適用する（保存側でも二重に防ぐ）
+    const billingType = canUseHalfBilling(data.category) && data.billingType === 'half' ? 'half' : 'full';
+    if (billingType === 'half') finalAmount = Math.floor(finalAmount / 2);
     try {
-      await setDoc(doc(db, ...basePath, 'orders', newId), { ...data, hospitalPlanDayType: null, hospitalPlanAmountMode: isHospitalPlanCategoryName(data.category) ? 'adjusted' : null, hospitalPlanDate: isHospitalPlanCategoryName(data.category) ? (data.hospitalPlanDate || '') : null, isHospitalPlanReflected: isHospitalPlanCategoryName(data.category) ? false : null, completionDocumentSubmittedDate: APPLICATION_MARK_CATEGORIES.includes(data.category) ? '' : null, isApplying: false, isMoveToPrevious: false, targetMonth: currentMonth, salespersonId: entryStaffId, amount: finalAmount, createdAt: new Date().toISOString() });
+      await setDoc(doc(db, ...basePath, 'orders', newId), { ...data, billingType, fullAmount: billingType === 'half' ? Number(data.amount || 0) : null, hospitalPlanDayType: null, hospitalPlanAmountMode: isHospitalPlanCategoryName(data.category) ? 'adjusted' : null, hospitalPlanDate: isHospitalPlanCategoryName(data.category) ? (data.hospitalPlanDate || '') : null, isHospitalPlanReflected: isHospitalPlanCategoryName(data.category) ? false : null, completionDocumentSubmittedDate: APPLICATION_MARK_CATEGORIES.includes(data.category) ? '' : null, isApplying: false, isMoveToPrevious: false, targetMonth: currentMonth, salespersonId: entryStaffId, amount: finalAmount, createdAt: new Date().toISOString() });
       showMessage('登録しました');
     } catch (e) {
       // 登録失敗を通知したうえで再スローする。呼び出し元(NewEntryForm.handleSub)は
