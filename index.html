@@ -104,7 +104,10 @@ const STATUS_RENTAL = ['未確定', '確定済'];
 const STATUS_SALES = ['未売上', '売上済'];
 const STATUS_HOSPITAL_PLAN = ['入院（予定）', '退院（予定）'];
 const HEAD_OFFICE_SETTING_CODE = '本社';
-const HEAD_OFFICE_ACCESS_CODE = 'TSS000';
+// 本社用アクセスコードは平文でソースに置かず、SHA-256 のハッシュ値だけを持つ。
+const HEAD_OFFICE_ACCESS_HASH = 'a039c6b92d52956b8029889fe138920d56fce7af0553e51b718f8af4d6f85ee0';
+// 旧版で保存された本社端末設定（設定コード＋本社アクセスコードから作った accessKey）を本社設定へ移行するための既知の値
+const LEGACY_HEAD_OFFICE_ACCESS_KEYS = ['f8jpvy323i54', '1v2ttt1v5ae2b', 'op93wc98rl9b'];
 const HEAD_OFFICE_DIRECTORY_APP_ID = 'solar-silver-head-office';
 
 const DEFAULT_CHART_CONFIG = {
@@ -228,9 +231,21 @@ const createAccessKey = (branchCode, accessCode) => {
   return `${(h2 >>> 0).toString(36)}${(h1 >>> 0).toString(36)}`;
 };
 
-const isHeadOfficeCredential = (branchCode, accessCode) => {
+const sha256Hex = async (text) => {
+  const bytes = new TextEncoder().encode(text);
+  const digest = await crypto.subtle.digest('SHA-256', bytes);
+  return Array.from(new Uint8Array(digest)).map((b) => b.toString(16).padStart(2, '0')).join('');
+};
+
+const isHeadOfficeCredential = async (branchCode, accessCode) => {
   const code = String(branchCode || '').trim();
-  return code.includes(HEAD_OFFICE_SETTING_CODE) && String(accessCode || '').trim() === HEAD_OFFICE_ACCESS_CODE;
+  if (!code.includes(HEAD_OFFICE_SETTING_CODE)) return false;
+  try {
+    return (await sha256Hex(`solar-silver-head-office::${String(accessCode || '').trim()}`)) === HEAD_OFFICE_ACCESS_HASH;
+  } catch (e) {
+    console.error(e);
+    return false;
+  }
 };
 
 const createHeadOfficeSetting = () => ({ id: 'head-office', name: '本社管理', accessKey: 'head-office', isHeadOffice: true });
@@ -240,12 +255,13 @@ const isStoredHeadOfficeSetting = (setting) => {
   const id = String(setting?.id || '');
   const name = String(setting?.name || '');
   if (!id.includes(HEAD_OFFICE_SETTING_CODE) && !name.includes(HEAD_OFFICE_SETTING_CODE)) return false;
-  return setting?.accessKey === createAccessKey(id, HEAD_OFFICE_ACCESS_CODE);
+  return LEGACY_HEAD_OFFICE_ACCESS_KEYS.includes(setting?.accessKey);
 };
 
+// 本社画面で常に表示する営業所。アクセスコードは平文で持たず、createAccessKey(営業所コード, アクセスコード) の結果だけを持つ。
 const KNOWN_HEAD_OFFICE_BRANCHES = [
-  { branchId: '行橋', branchName: '行橋営業所', accessCode: 'TSS250' },
-  { branchId: '田川', branchName: '田川営業所', accessCode: 'TSS110' }
+  { branchId: '行橋', branchName: '行橋営業所', accessKey: 'sutpib1yy3cr8' },
+  { branchId: '田川', branchName: '田川営業所', accessKey: 'a9lwuc19u77n8' }
 ];
 
 const isHeadOfficeBranchRecord = (branch) => {
@@ -255,10 +271,8 @@ const isHeadOfficeBranchRecord = (branch) => {
   return branchId.includes(HEAD_OFFICE_SETTING_CODE) || branchName.includes(HEAD_OFFICE_SETTING_CODE) || appId.includes('head-office');
 };
 
-const createBranchAppId = (branchId, accessCode) => `solar-silver-${branchId}-${createAccessKey(branchId, accessCode)}`;
-
 const getKnownHeadOfficeBranches = () => KNOWN_HEAD_OFFICE_BRANCHES.map((branch) => ({
-  appId: createBranchAppId(branch.branchId, branch.accessCode),
+  appId: `solar-silver-${branch.branchId}-${branch.accessKey}`,
   branchId: branch.branchId,
   branchName: branch.branchName,
   source: 'known'
@@ -628,7 +642,7 @@ const SetupScreen = ({ onComplete }) => {
   const portalOffice = portalSessionOfficeName();
   const portalOfficeShort = portalOffice.replace(/営業所$/, '');
 
-  const handleSetup = (e) => {
+  const handleSetup = async (e) => {
     e.preventDefault();
     const code = branchCode.trim();
     const pass = accessCode.trim();
@@ -640,7 +654,7 @@ const SetupScreen = ({ onComplete }) => {
       setError('アクセスコードは5文字以上で入力してください');
       return;
     }
-    if (isHeadOfficeCredential(code, pass)) {
+    if (await isHeadOfficeCredential(code, pass)) {
       const setting = createHeadOfficeSetting();
       localStorage.setItem('solar_silver_branch_setting', JSON.stringify(setting));
       onComplete(setting);
