@@ -30,7 +30,9 @@
         }
       }
     </script>
-    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <!-- バージョンを固定する。番号なしだと常に最新版が読み込まれ、Babel側の更新で
+         全営業所のアプリが予告なく動かなくなるおそれがあるため。 -->
+    <script src="https://unpkg.com/@babel/standalone@7.29.9/babel.min.js"></script>
   </head>
   <body class="bg-slate-50">
     <div id="root"></div>
