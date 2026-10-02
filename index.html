@@ -2224,7 +2224,7 @@ const MainApp = ({ branchSetting }) => {
     for (const o of periodOrders) {
       const name = String(o.careHomeName || '').trim();
       if (!name) { unnamedCount += 1; continue; }
-      if (!facilityMap.has(name)) facilityMap.set(name, { name, count: 0, amount: 0, sourceCount: {}, categoryCount: {}, staffIds: new Set(), lastMonth: '' });
+      if (!facilityMap.has(name)) facilityMap.set(name, { name, count: 0, amount: 0, sourceCount: {}, categoryCount: {}, categoryAmount: {}, staffIds: new Set(), lastMonth: '' });
       const entry = facilityMap.get(name);
       const month = getOrderAccountingMonth(o);
       entry.count += 1;
@@ -2232,6 +2232,7 @@ const MainApp = ({ branchSetting }) => {
       if (o.source) entry.sourceCount[o.source] = (entry.sourceCount[o.source] || 0) + 1;
       const catLabel = normalizeCat(o.category);
       entry.categoryCount[catLabel] = (entry.categoryCount[catLabel] || 0) + 1;
+      entry.categoryAmount[catLabel] = (entry.categoryAmount[catLabel] || 0) + orderAmount(o);
       if (o.salespersonId) entry.staffIds.add(Number(o.salespersonId));
       if (month && month > entry.lastMonth) entry.lastMonth = month;
     }
@@ -2691,7 +2692,23 @@ const AnalyticsView = ({ data, salespersons, period, setPeriod, staffId, setStaf
   const [subView, setSubView] = useState('overview');
   const [showAllFacilities, setShowAllFacilities] = useState(false);
   const [personalStaffId, setPersonalStaffId] = useState('');
-  const facilities = showAllFacilities ? data.facilityRows : data.facilityRows.slice(0, 15);
+  // 事業所ランキングは「全体」のほか、レンタル新規・特価ベッドなど項目ごとにも順位を付けられる
+  const [facilityCat, setFacilityCat] = useState('all');
+  const facilityCatOptions = useMemo(() => {
+    const present = new Set();
+    data.facilityRows.forEach((row) => Object.keys(row.categoryCount || {}).forEach((c) => { if (row.categoryCount[c] > 0) present.add(c); }));
+    const order = [...RENTAL_CATEGORIES, ...SALES_CATEGORIES];
+    return [...order.filter((c) => present.has(c)), ...Array.from(present).filter((c) => !order.includes(c)).sort()];
+  }, [data.facilityRows]);
+  const activeFacilityCat = facilityCat !== 'all' && facilityCatOptions.includes(facilityCat) ? facilityCat : 'all';
+  const rankedFacilityRows = useMemo(() => {
+    if (activeFacilityCat === 'all') return data.facilityRows;
+    return data.facilityRows
+      .filter((row) => (row.categoryCount?.[activeFacilityCat] || 0) > 0)
+      .map((row) => ({ ...row, count: row.categoryCount[activeFacilityCat], amount: row.categoryAmount?.[activeFacilityCat] || 0, totalCount: row.count }))
+      .sort((a, b) => b.count - a.count || b.amount - a.amount);
+  }, [data.facilityRows, activeFacilityCat]);
+  const facilities = showAllFacilities ? rankedFacilityRows : rankedFacilityRows.slice(0, 15);
   const sourceSegments = [
     { key: '包括', color: 'bg-blue-400' },
     { key: '居宅', color: 'bg-emerald-400' },
@@ -2818,6 +2835,16 @@ const AnalyticsView = ({ data, salespersons, period, setPeriod, staffId, setStaf
           </AnalyticsCard>
 
           <AnalyticsCard title="事業所別 依頼ランキング" description={`登録済みの事業所名で集計。対象 ${data.facilityTotal}事業所${data.unnamedCount > 0 ? ` / 事業所名の未入力 ${data.unnamedCount}件は未集計` : ''}`}>
+            {facilityCatOptions.length > 0 && (
+              <div className="px-4 pt-3 pb-1 flex flex-wrap gap-1.5" role="tablist" aria-label="ランキングの項目">
+                {[['all', '全体'], ...facilityCatOptions.map((c) => [c, analyticsCategoryLabel(c)])].map(([key, label]) => (
+                  <button key={key} type="button" role="tab" aria-selected={activeFacilityCat === key} onClick={() => setFacilityCat(key)}
+                    className={`px-3 py-1.5 rounded-full text-xs font-extrabold border transition ${activeFacilityCat === key ? 'bg-blue-600 border-blue-600 text-white' : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'}`}>
+                    {label}
+                  </button>
+                ))}
+              </div>
+            )}
             <div className="overflow-x-auto">
               {/* 事業所名は「特定非営利活動法人〜居宅介護支援事業所」のように長く、
                   760pxだと名前と内訳が3行に潰れる。必要幅で確保して横スクロールさせる。 */}
@@ -2827,15 +2854,15 @@ const AnalyticsView = ({ data, salespersons, period, setPeriod, staffId, setStaf
                     <th className="px-4 py-2.5 text-left font-extrabold whitespace-nowrap">順位</th>
                     <th className="px-4 py-2.5 text-left font-extrabold whitespace-nowrap">事業所名</th>
                     <th className="px-4 py-2.5 text-left font-extrabold whitespace-nowrap">区分</th>
-                    <th className="px-4 py-2.5 text-right font-extrabold whitespace-nowrap">件数</th>
-                    <th className="px-4 py-2.5 text-right font-extrabold whitespace-nowrap">金額</th>
-                    <th className="px-4 py-2.5 text-left font-extrabold whitespace-nowrap">内訳</th>
+                    <th className="px-4 py-2.5 text-right font-extrabold whitespace-nowrap">{activeFacilityCat === 'all' ? '件数' : `${analyticsCategoryLabel(activeFacilityCat)} 件数`}</th>
+                    <th className="px-4 py-2.5 text-right font-extrabold whitespace-nowrap">{activeFacilityCat === 'all' ? '金額' : `${analyticsCategoryLabel(activeFacilityCat)} 金額`}</th>
+                    <th className="px-4 py-2.5 text-left font-extrabold whitespace-nowrap">内訳{activeFacilityCat === 'all' ? '' : '（全項目）'}</th>
                     <th className="px-4 py-2.5 text-left font-extrabold whitespace-nowrap">担当</th>
                     <th className="px-4 py-2.5 text-left font-extrabold whitespace-nowrap">最終依頼</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {facilities.length === 0 && <tr><td colSpan={8} className="px-4 py-6 text-center text-slate-500 font-bold">この期間に事業所名つきの登録はありません</td></tr>}
+                  {facilities.length === 0 && <tr><td colSpan={8} className="px-4 py-6 text-center text-slate-500 font-bold">{activeFacilityCat === 'all' ? 'この期間に事業所名つきの登録はありません' : `この期間に${analyticsCategoryLabel(activeFacilityCat)}の依頼はありません`}</td></tr>}
                   {facilities.map((row, index) => (
                     <tr key={row.name} className="hover:bg-blue-50/30">
                       <td className="px-4 py-2.5 font-extrabold text-slate-500 whitespace-nowrap">{index + 1}</td>
@@ -2851,10 +2878,10 @@ const AnalyticsView = ({ data, salespersons, period, setPeriod, staffId, setStaf
                 </tbody>
               </table>
             </div>
-            {data.facilityRows.length > 15 && (
+            {rankedFacilityRows.length > 15 && (
               <div className="px-4 py-3 bg-slate-50 border-t border-slate-100">
                 <button onClick={() => setShowAllFacilities((prev) => !prev)} className="text-sm font-extrabold text-blue-600 hover:text-blue-700">
-                  {showAllFacilities ? '上位15事業所だけ表示' : `すべて表示（残り${data.facilityRows.length - 15}事業所）`}
+                  {showAllFacilities ? '上位15事業所だけ表示' : `すべて表示（残り${rankedFacilityRows.length - 15}事業所）`}
                 </button>
               </div>
             )}
