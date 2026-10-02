@@ -106,7 +106,10 @@ const STATUS_RENTAL = ['未確定', '確定済'];
 const STATUS_SALES = ['未売上', '売上済'];
 const STATUS_HOSPITAL_PLAN = ['入院（予定）', '退院（予定）'];
 const HEAD_OFFICE_SETTING_CODE = '本社';
-const HEAD_OFFICE_ACCESS_CODE = 'TSS000';
+// 本社用アクセスコードは平文でソースに置かず、SHA-256 のハッシュ値だけを持つ。
+const HEAD_OFFICE_ACCESS_HASH = 'a039c6b92d52956b8029889fe138920d56fce7af0553e51b718f8af4d6f85ee0';
+// 旧版で保存された本社端末設定（設定コード＋本社アクセスコードから作った accessKey）を本社設定へ移行するための既知の値
+const LEGACY_HEAD_OFFICE_ACCESS_KEYS = ['f8jpvy323i54', '1v2ttt1v5ae2b', 'op93wc98rl9b'];
 const HEAD_OFFICE_DIRECTORY_APP_ID = 'solar-silver-head-office';
 
 const DEFAULT_CHART_CONFIG = {
@@ -167,6 +170,9 @@ const getStatusesByCategory = (cat) => {
 };
 const isCompletedStatus = (status) => status === '確定済' || status === '売上済';
 const isHospitalPlanCategoryName = (category) => category === HOSPITAL_PLAN_CATEGORY || category === HOSPITAL_PLAN_LEGACY_CATEGORY;
+// 月額/半月の切替が意味を持つ区分（入力画面でも切替ボタンを出している区分）。
+// これ以外（特価ベッド・住宅改修・特定福祉用具・その他販売）は常に月額（入力した金額そのまま）で登録する。
+const canUseHalfBilling = (category) => (RENTAL_CATEGORIES.includes(category) && category !== '特価ベッド') || isHospitalPlanCategoryName(category);
 const getHospitalPlanSignedAmount = (order) => {
   if (!isHospitalPlanCategoryName(order?.category)) return 0;
   const amount = Number(order.amount || 0);
@@ -227,9 +233,21 @@ const createAccessKey = (branchCode, accessCode) => {
   return `${(h2 >>> 0).toString(36)}${(h1 >>> 0).toString(36)}`;
 };
 
-const isHeadOfficeCredential = (branchCode, accessCode) => {
+const sha256Hex = async (text) => {
+  const bytes = new TextEncoder().encode(text);
+  const digest = await crypto.subtle.digest('SHA-256', bytes);
+  return Array.from(new Uint8Array(digest)).map((b) => b.toString(16).padStart(2, '0')).join('');
+};
+
+const isHeadOfficeCredential = async (branchCode, accessCode) => {
   const code = String(branchCode || '').trim();
-  return code.includes(HEAD_OFFICE_SETTING_CODE) && String(accessCode || '').trim() === HEAD_OFFICE_ACCESS_CODE;
+  if (!code.includes(HEAD_OFFICE_SETTING_CODE)) return false;
+  try {
+    return (await sha256Hex(`solar-silver-head-office::${String(accessCode || '').trim()}`)) === HEAD_OFFICE_ACCESS_HASH;
+  } catch (e) {
+    console.error(e);
+    return false;
+  }
 };
 
 const createHeadOfficeSetting = () => ({ id: 'head-office', name: '本社管理', accessKey: 'head-office', isHeadOffice: true });
@@ -239,12 +257,13 @@ const isStoredHeadOfficeSetting = (setting) => {
   const id = String(setting?.id || '');
   const name = String(setting?.name || '');
   if (!id.includes(HEAD_OFFICE_SETTING_CODE) && !name.includes(HEAD_OFFICE_SETTING_CODE)) return false;
-  return setting?.accessKey === createAccessKey(id, HEAD_OFFICE_ACCESS_CODE);
+  return LEGACY_HEAD_OFFICE_ACCESS_KEYS.includes(setting?.accessKey);
 };
 
+// 本社画面で常に表示する営業所。アクセスコードは平文で持たず、createAccessKey(営業所コード, アクセスコード) の結果だけを持つ。
 const KNOWN_HEAD_OFFICE_BRANCHES = [
-  { branchId: '行橋', branchName: '行橋営業所', accessCode: 'TSS250' },
-  { branchId: '田川', branchName: '田川営業所', accessCode: 'TSS110' }
+  { branchId: '行橋', branchName: '行橋営業所', accessKey: 'sutpib1yy3cr8' },
+  { branchId: '田川', branchName: '田川営業所', accessKey: 'a9lwuc19u77n8' }
 ];
 
 const isHeadOfficeBranchRecord = (branch) => {
@@ -254,10 +273,8 @@ const isHeadOfficeBranchRecord = (branch) => {
   return branchId.includes(HEAD_OFFICE_SETTING_CODE) || branchName.includes(HEAD_OFFICE_SETTING_CODE) || appId.includes('head-office');
 };
 
-const createBranchAppId = (branchId, accessCode) => `solar-silver-${branchId}-${createAccessKey(branchId, accessCode)}`;
-
 const getKnownHeadOfficeBranches = () => KNOWN_HEAD_OFFICE_BRANCHES.map((branch) => ({
-  appId: createBranchAppId(branch.branchId, branch.accessCode),
+  appId: `solar-silver-${branch.branchId}-${branch.accessKey}`,
   branchId: branch.branchId,
   branchName: branch.branchName,
   source: 'known'
@@ -627,7 +644,7 @@ const SetupScreen = ({ onComplete }) => {
   const portalOffice = portalSessionOfficeName();
   const portalOfficeShort = portalOffice.replace(/営業所$/, '');
 
-  const handleSetup = (e) => {
+  const handleSetup = async (e) => {
     e.preventDefault();
     const code = branchCode.trim();
     const pass = accessCode.trim();
@@ -639,7 +656,7 @@ const SetupScreen = ({ onComplete }) => {
       setError('アクセスコードは5文字以上で入力してください');
       return;
     }
-    if (isHeadOfficeCredential(code, pass)) {
+    if (await isHeadOfficeCredential(code, pass)) {
       const setting = createHeadOfficeSetting();
       localStorage.setItem('solar_silver_branch_setting', JSON.stringify(setting));
       onComplete(setting);
@@ -690,7 +707,9 @@ const NewEntryForm = React.memo(({ salespersons, onSubmit, selectedStaffId, onSt
   const categoryButtonClass = useCallback((category) => `min-h-[74px] sm:min-h-[88px] flex items-center justify-center py-3 sm:py-4 px-1 rounded-xl font-bold text-[10px] sm:text-sm border-2 transition-all ${data.category === category ? 'bg-blue-500 border-blue-500 text-white shadow-lg scale-105' : 'bg-white border-slate-200 text-slate-700 hover:border-blue-400'}`, [data.category]);
   const handleCategorySelect = useCallback((category) => {
     const isOther = OTHER_SALES_CATS.includes(category);
-    setData((prev) => ({ ...prev, category, status: getStatusesByCategory(category)[0], source: isOther ? 'その他' : (prev.source === 'その他' ? sources[0] : prev.source), careHomeName: isOther ? '' : prev.careHomeName }));
+    // 月額/半月ボタンを出さない区分へ切り替えたら月額に戻す。以前は直前に選んだ「半月」が
+    // 見えないまま残り、住宅改修・特定福祉用具などの金額が半額で登録されていた。
+    setData((prev) => ({ ...prev, category, status: getStatusesByCategory(category)[0], source: isOther ? 'その他' : (prev.source === 'その他' ? sources[0] : prev.source), careHomeName: isOther ? '' : prev.careHomeName, billingType: canUseHalfBilling(category) ? prev.billingType : 'full' }));
   }, []);
   const handleOptionalToggle = useCallback(() => {
     setShowOptionalCategories((open) => {
@@ -801,8 +820,16 @@ const OrderRow = React.memo(({ order, onUpdate, onDelete, salespersons = [] }) =
     if (order.billingType === billingType) return;
     const amount = Number(order.amount || 0);
     await onUpdate(order.id, 'billingType', billingType);
-    if (billingType === 'half' && order.billingType !== 'exchange') await onUpdate(order.id, 'amount', Math.floor(amount / 2));
-    if (billingType === 'full' && order.billingType === 'half') await onUpdate(order.id, 'amount', amount * 2);
+    if (billingType === 'half' && order.billingType !== 'exchange') {
+      // 月額に戻したときに元の金額へ正確に戻せるよう、半額にする前の金額を残す
+      // （以前は 3,555円→1,777円→3,554円 のように奇数の金額で1円ずれていた）
+      await onUpdate(order.id, 'fullAmount', amount);
+      await onUpdate(order.id, 'amount', Math.floor(amount / 2));
+    }
+    if (billingType === 'full' && order.billingType === 'half') {
+      const full = Number(order.fullAmount);
+      await onUpdate(order.id, 'amount', full && Math.floor(full / 2) === amount ? full : amount * 2);
+    }
   };
 
   return (
@@ -1868,9 +1895,11 @@ const MainApp = ({ branchSetting }) => {
   const handleEntrySubmit = useCallback(async (data) => {
     const newId = `order_${Date.now()}`;
     let finalAmount = Number(data.amount || 0);
-    if (data.billingType === 'half') finalAmount = Math.floor(finalAmount / 2);
+    // 半月計算は切替ボタンを出している区分だけに適用する（保存側でも二重に防ぐ）
+    const billingType = canUseHalfBilling(data.category) && data.billingType === 'half' ? 'half' : 'full';
+    if (billingType === 'half') finalAmount = Math.floor(finalAmount / 2);
     try {
-      await setDoc(doc(db, ...basePath, 'orders', newId), { ...data, hospitalPlanDayType: null, hospitalPlanAmountMode: isHospitalPlanCategoryName(data.category) ? 'adjusted' : null, hospitalPlanDate: isHospitalPlanCategoryName(data.category) ? (data.hospitalPlanDate || '') : null, isHospitalPlanReflected: isHospitalPlanCategoryName(data.category) ? false : null, completionDocumentSubmittedDate: APPLICATION_MARK_CATEGORIES.includes(data.category) ? '' : null, isApplying: false, isMoveToPrevious: false, targetMonth: currentMonth, salespersonId: entryStaffId, amount: finalAmount, createdAt: new Date().toISOString() });
+      await setDoc(doc(db, ...basePath, 'orders', newId), { ...data, billingType, fullAmount: billingType === 'half' ? Number(data.amount || 0) : null, hospitalPlanDayType: null, hospitalPlanAmountMode: isHospitalPlanCategoryName(data.category) ? 'adjusted' : null, hospitalPlanDate: isHospitalPlanCategoryName(data.category) ? (data.hospitalPlanDate || '') : null, isHospitalPlanReflected: isHospitalPlanCategoryName(data.category) ? false : null, completionDocumentSubmittedDate: APPLICATION_MARK_CATEGORIES.includes(data.category) ? '' : null, isApplying: false, isMoveToPrevious: false, targetMonth: currentMonth, salespersonId: entryStaffId, amount: finalAmount, createdAt: new Date().toISOString() });
       showMessage('登録しました');
     } catch (e) {
       // 登録失敗を通知したうえで再スローする。呼び出し元(NewEntryForm.handleSub)は
@@ -2195,7 +2224,7 @@ const MainApp = ({ branchSetting }) => {
     for (const o of periodOrders) {
       const name = String(o.careHomeName || '').trim();
       if (!name) { unnamedCount += 1; continue; }
-      if (!facilityMap.has(name)) facilityMap.set(name, { name, count: 0, amount: 0, sourceCount: {}, categoryCount: {}, staffIds: new Set(), lastMonth: '' });
+      if (!facilityMap.has(name)) facilityMap.set(name, { name, count: 0, amount: 0, sourceCount: {}, categoryCount: {}, categoryAmount: {}, staffIds: new Set(), lastMonth: '' });
       const entry = facilityMap.get(name);
       const month = getOrderAccountingMonth(o);
       entry.count += 1;
@@ -2203,6 +2232,7 @@ const MainApp = ({ branchSetting }) => {
       if (o.source) entry.sourceCount[o.source] = (entry.sourceCount[o.source] || 0) + 1;
       const catLabel = normalizeCat(o.category);
       entry.categoryCount[catLabel] = (entry.categoryCount[catLabel] || 0) + 1;
+      entry.categoryAmount[catLabel] = (entry.categoryAmount[catLabel] || 0) + orderAmount(o);
       if (o.salespersonId) entry.staffIds.add(Number(o.salespersonId));
       if (month && month > entry.lastMonth) entry.lastMonth = month;
     }
@@ -2390,12 +2420,12 @@ const MainApp = ({ branchSetting }) => {
       <header className="bg-white border-b border-slate-100 sticky top-0 z-50 shadow-sm print:hidden">
         <div className="max-w-6xl mx-auto px-5 pt-1"><a href="https://akamar08taiyo-bot.github.io/taiyo-portal/" className="text-[10.5px] text-slate-400 hover:text-slate-600">← 業務アプリポータルへ戻る</a></div>
         <div className="max-w-6xl mx-auto px-5 h-20 flex items-center justify-between">
-          <div className="flex items-center gap-4"><ShieldCheck size={32} className="text-blue-500 hidden sm:block" /><div><h1 className="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight">受注残・進捗管理表</h1><p className="text-xs font-bold text-blue-500">{BRANCH_NAME}</p></div></div>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-4 min-w-0"><ShieldCheck size={32} className="text-blue-500 hidden sm:block" /><div className="min-w-0">{/* スマホでは1〜2文字ずつ縦に折り返して上にはみ出していたため、小さめの文字で2行に収める */}<h1 className="text-sm leading-tight sm:text-2xl font-bold text-slate-900 tracking-tight">受注残・進捗管理表</h1><p className="text-xs font-bold text-blue-500 whitespace-nowrap">{BRANCH_NAME}</p></div></div>
+          <div className="flex items-center gap-2 sm:gap-3 shrink-0">
             <button onClick={handleResetBranchSetting} className="hidden sm:block text-xs font-bold text-slate-600 bg-slate-50 hover:bg-slate-100 border border-slate-200 px-3 py-2 rounded-xl">設定変更</button>
             <button onClick={() => setShowUpdateConfirm(true)} className="flex items-center gap-1.5 text-xs font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 px-2 sm:px-3 py-2 rounded-xl"><CheckCircle2 size={15} /><span className="hidden sm:inline">更新確認</span><span className="sm:hidden">確認</span></button>
             <div className="hidden md:flex items-center bg-slate-50 rounded-xl p-1 shadow-inner border border-slate-200"><button onClick={() => setZoomLevel((p) => Math.max(0.6, p - 0.1))} className="p-1.5 text-slate-600 hover:text-blue-500 hover:bg-white rounded-lg"><ZoomOut size={16} /></button><span className="text-xs font-bold text-slate-800 w-10 text-center">{Math.round(zoomLevel * 100)}%</span><button onClick={() => setZoomLevel((p) => Math.min(1.5, p + 0.1))} className="p-1.5 text-slate-600 hover:text-blue-500 hover:bg-white rounded-lg"><ZoomIn size={16} /></button></div>
-            <div className="flex items-center gap-2 bg-slate-50 px-3 sm:px-4 py-2 sm:py-2.5 rounded-xl shadow-inner border border-slate-200"><Calendar size={18} className="text-slate-500 hidden sm:block" /><input type="month" value={currentMonth} onChange={(e) => setCurrentMonth(e.target.value)} className="bg-transparent border-none text-sm sm:text-base font-bold text-slate-800 outline-none cursor-pointer" /></div>
+            <div className="flex items-center gap-2 bg-slate-50 px-3 sm:px-4 py-2 sm:py-2.5 rounded-xl shadow-inner border border-slate-200"><Calendar size={18} className="text-slate-500 hidden sm:block" /><input type="month" value={currentMonth} onChange={(e) => setCurrentMonth(e.target.value)} className="w-[7.5rem] sm:w-auto bg-transparent border-none text-sm sm:text-base font-bold text-slate-800 outline-none cursor-pointer" /></div>
           </div>
         </div>
       </header>
@@ -2662,7 +2692,23 @@ const AnalyticsView = ({ data, salespersons, period, setPeriod, staffId, setStaf
   const [subView, setSubView] = useState('overview');
   const [showAllFacilities, setShowAllFacilities] = useState(false);
   const [personalStaffId, setPersonalStaffId] = useState('');
-  const facilities = showAllFacilities ? data.facilityRows : data.facilityRows.slice(0, 15);
+  // 事業所ランキングは「全体」のほか、レンタル新規・特価ベッドなど項目ごとにも順位を付けられる
+  const [facilityCat, setFacilityCat] = useState('all');
+  const facilityCatOptions = useMemo(() => {
+    const present = new Set();
+    data.facilityRows.forEach((row) => Object.keys(row.categoryCount || {}).forEach((c) => { if (row.categoryCount[c] > 0) present.add(c); }));
+    const order = [...RENTAL_CATEGORIES, ...SALES_CATEGORIES];
+    return [...order.filter((c) => present.has(c)), ...Array.from(present).filter((c) => !order.includes(c)).sort()];
+  }, [data.facilityRows]);
+  const activeFacilityCat = facilityCat !== 'all' && facilityCatOptions.includes(facilityCat) ? facilityCat : 'all';
+  const rankedFacilityRows = useMemo(() => {
+    if (activeFacilityCat === 'all') return data.facilityRows;
+    return data.facilityRows
+      .filter((row) => (row.categoryCount?.[activeFacilityCat] || 0) > 0)
+      .map((row) => ({ ...row, count: row.categoryCount[activeFacilityCat], amount: row.categoryAmount?.[activeFacilityCat] || 0, totalCount: row.count }))
+      .sort((a, b) => b.count - a.count || b.amount - a.amount);
+  }, [data.facilityRows, activeFacilityCat]);
+  const facilities = showAllFacilities ? rankedFacilityRows : rankedFacilityRows.slice(0, 15);
   const sourceSegments = [
     { key: '包括', color: 'bg-blue-400' },
     { key: '居宅', color: 'bg-emerald-400' },
@@ -2789,6 +2835,16 @@ const AnalyticsView = ({ data, salespersons, period, setPeriod, staffId, setStaf
           </AnalyticsCard>
 
           <AnalyticsCard title="事業所別 依頼ランキング" description={`登録済みの事業所名で集計。対象 ${data.facilityTotal}事業所${data.unnamedCount > 0 ? ` / 事業所名の未入力 ${data.unnamedCount}件は未集計` : ''}`}>
+            {facilityCatOptions.length > 0 && (
+              <div className="px-4 pt-3 pb-1 flex flex-wrap gap-1.5" role="tablist" aria-label="ランキングの項目">
+                {[['all', '全体'], ...facilityCatOptions.map((c) => [c, analyticsCategoryLabel(c)])].map(([key, label]) => (
+                  <button key={key} type="button" role="tab" aria-selected={activeFacilityCat === key} onClick={() => setFacilityCat(key)}
+                    className={`px-3 py-1.5 rounded-full text-xs font-extrabold border transition ${activeFacilityCat === key ? 'bg-blue-600 border-blue-600 text-white' : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'}`}>
+                    {label}
+                  </button>
+                ))}
+              </div>
+            )}
             <div className="overflow-x-auto">
               {/* 事業所名は「特定非営利活動法人〜居宅介護支援事業所」のように長く、
                   760pxだと名前と内訳が3行に潰れる。必要幅で確保して横スクロールさせる。 */}
@@ -2798,15 +2854,15 @@ const AnalyticsView = ({ data, salespersons, period, setPeriod, staffId, setStaf
                     <th className="px-4 py-2.5 text-left font-extrabold whitespace-nowrap">順位</th>
                     <th className="px-4 py-2.5 text-left font-extrabold whitespace-nowrap">事業所名</th>
                     <th className="px-4 py-2.5 text-left font-extrabold whitespace-nowrap">区分</th>
-                    <th className="px-4 py-2.5 text-right font-extrabold whitespace-nowrap">件数</th>
-                    <th className="px-4 py-2.5 text-right font-extrabold whitespace-nowrap">金額</th>
-                    <th className="px-4 py-2.5 text-left font-extrabold whitespace-nowrap">内訳</th>
+                    <th className="px-4 py-2.5 text-right font-extrabold whitespace-nowrap">{activeFacilityCat === 'all' ? '件数' : `${analyticsCategoryLabel(activeFacilityCat)} 件数`}</th>
+                    <th className="px-4 py-2.5 text-right font-extrabold whitespace-nowrap">{activeFacilityCat === 'all' ? '金額' : `${analyticsCategoryLabel(activeFacilityCat)} 金額`}</th>
+                    <th className="px-4 py-2.5 text-left font-extrabold whitespace-nowrap">内訳{activeFacilityCat === 'all' ? '' : '（全項目）'}</th>
                     <th className="px-4 py-2.5 text-left font-extrabold whitespace-nowrap">担当</th>
                     <th className="px-4 py-2.5 text-left font-extrabold whitespace-nowrap">最終依頼</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {facilities.length === 0 && <tr><td colSpan={8} className="px-4 py-6 text-center text-slate-500 font-bold">この期間に事業所名つきの登録はありません</td></tr>}
+                  {facilities.length === 0 && <tr><td colSpan={8} className="px-4 py-6 text-center text-slate-500 font-bold">{activeFacilityCat === 'all' ? 'この期間に事業所名つきの登録はありません' : `この期間に${analyticsCategoryLabel(activeFacilityCat)}の依頼はありません`}</td></tr>}
                   {facilities.map((row, index) => (
                     <tr key={row.name} className="hover:bg-blue-50/30">
                       <td className="px-4 py-2.5 font-extrabold text-slate-500 whitespace-nowrap">{index + 1}</td>
@@ -2822,10 +2878,10 @@ const AnalyticsView = ({ data, salespersons, period, setPeriod, staffId, setStaf
                 </tbody>
               </table>
             </div>
-            {data.facilityRows.length > 15 && (
+            {rankedFacilityRows.length > 15 && (
               <div className="px-4 py-3 bg-slate-50 border-t border-slate-100">
                 <button onClick={() => setShowAllFacilities((prev) => !prev)} className="text-sm font-extrabold text-blue-600 hover:text-blue-700">
-                  {showAllFacilities ? '上位15事業所だけ表示' : `すべて表示（残り${data.facilityRows.length - 15}事業所）`}
+                  {showAllFacilities ? '上位15事業所だけ表示' : `すべて表示（残り${rankedFacilityRows.length - 15}事業所）`}
                 </button>
               </div>
             )}
