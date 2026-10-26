@@ -121,7 +121,7 @@ test('新しく足す行：受注残一覧の「行を追加」と同じ初め�
     salespersonId: 2,
     createdAt: '2026-10-26T00:00:00.000Z',
     taiyoLink: 'tokutei:t1',
-    taiyoSynced: {customerName: '見本 花子', careHomeName: '見本地域包括支援センター', amount: 28000, salespersonId: null},
+    taiyoSynced: {customerName: '見本 花子', careHomeName: '見本地域包括支援センター', amount: 28000, salespersonId: null, targetMonth: '2026-11'},
   });
   // 入れたときの担当は、見積書の担当から探した担当（お知らせで選び直した担当ではない）
   assert.deepEqual([lib.taiyoOrderDoc({...row, salespersonId: 1}, 2, '').salespersonId, lib.taiyoOrderDoc({...row, salespersonId: 1}, 2, '').taiyoSynced.salespersonId], [2, 1]);
@@ -170,4 +170,29 @@ test('担当が変わった：見積書で担当を変えたら、受注残で�
   assert.deepEqual(lib.planTaiyoLink([{...row, staffName: ''}], [order], STAFF).updates, []);
   const {salespersonId: _old, ...oldSynced} = synced;
   assert.deepEqual(lib.planTaiyoLink([row], [{...order, taiyoSynced: oldSynced}], STAFF).updates, []);
+});
+
+test('売上月（ユーザーの指示「切り替えた分に関しては受注残に飛ばすときにも、その月の該当の月の受注残に含める」2026-10-26）：申請書・見積書作成で変えた月で入れ、入れたあとに変えても移す', () => {
+  // 特定福祉用具の案件の月は、住宅改修のまとめの tokuteiMonths（申請書・見積書作成の一覧・売上見込みで変えた月）があればそちら
+  const s = storage({
+    'taiyo-jutaku-sales-v1': JSON.stringify({v: 1, updatedAt: 1, rows: [], tokuteiMonths: {t1: '2026-11', t2: 'こわれた'}}),
+    'taiyo-tokutei-sales-v1': jutaku([
+      {id: 't1', customer: '見本 花子', staff: '', careOffice: '', month: '2026-10', amount: 28000, office: '行橋営業所'},
+      {id: 't2', customer: '見本 二子', staff: '', careOffice: '', month: '2026-10', amount: 9000, office: '行橋営業所'},
+    ]),
+  });
+  assert.deepEqual(lib.readTaiyoLinkRows(s, '行橋営業所').map((r) => [r.linkKey, r.targetMonth]), [['tokutei:t1', '2026-11'], ['tokutei:t2', '2026-10']]);
+  // 入れたあとに月を変えた → その月へ（次月・前月のチェックも外す）
+  const synced = {customerName: '見本 花子', careHomeName: '', amount: 28000, salespersonId: null, targetMonth: '2026-10'};
+  const order = {id: 'order_8', taiyoLink: 'tokutei:t1', status: '未売上', customerName: '見本 花子', careHomeName: '', amount: 28000, salespersonId: 1, targetMonth: '2026-10', isCarryOver: true, taiyoSynced: synced};
+  const row = {linkKey: 'tokutei:t1', category: '特定福祉用具販売', customerName: '見本 花子', careHomeName: '', staffName: '', amount: 28000, targetMonth: '2026-11'};
+  const plan = lib.planTaiyoLink([row], [order], STAFF);
+  assert.deepEqual(plan.updates.map((x) => x.patch), [{targetMonth: '2026-11'}]);
+  assert.deepEqual(lib.taiyoOrderPatch(plan.updates[0]), {targetMonth: '2026-11', isCarryOver: false, isMoveToPrevious: false, taiyoSynced: {...synced, targetMonth: '2026-11'}});
+  // 受注残で月を手で直した（次月へ移行した）行・前の版で入れた行（入れたときの月がない）は動かさない
+  assert.deepEqual(lib.planTaiyoLink([row], [{...order, targetMonth: '2026-12'}], STAFF).updates, []);
+  const {targetMonth: _old, ...oldSynced} = synced;
+  assert.deepEqual(lib.planTaiyoLink([row], [{...order, taiyoSynced: oldSynced}], STAFF).updates, []);
+  // 月が同じなら何もしない
+  assert.deepEqual(lib.planTaiyoLink([{...row, targetMonth: '2026-10'}], [order], STAFF).updates, []);
 });

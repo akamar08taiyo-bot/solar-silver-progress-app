@@ -206,10 +206,13 @@ const inferSourceFromCareHomeName = (value) => {
 // 同じサイトなので、2つのアプリがこの端末の localStorage に書いた案件ごとのまとめを読む（住宅改修 taiyo-jutaku-sales-v1・特定福祉用具 taiyo-tokutei-sales-v1。
 // 形はそれぞれのアプリの salesSummary）。受注残に入れるのは、画面の「受注残に入れる」を押したときだけ。
 // 入れた行には taiyoLink（どの案件か）と taiyoSynced（入れたときのお客様名・事業所名・金額）を持つ。あとで金額などが変わったら、
-// 受注残で手で直していない項目だけを直す（売上済の行・手で直した項目・月はそのまま）。受注残の行を消すことはしない。
+// 受注残で手で直していない項目だけを直す（売上済の行・手で直した項目はそのまま）。受注残の行を消すことはしない。
 // 担当は、申請書・見積書作成の担当の名前で受注残の担当者（マスタ設定）につなぐ（ユーザーの指示「受注残にそのまま飛ばす際には、受注残の中でも担当の受注残に入るように紐づける」
 // 2026-10-26）。見つからなければ選ぶまで入れない（前は画面で選んでいる担当に入った）。一度選んだ担当はこの端末で覚え、次から同じ名前はその担当に。
-// 見積書で担当を変えたら、受注残で担当を手で直していない行は新しい担当の受注残へ移す
+// 見積書で担当を変えたら、受注残で担当を手で直していない行は新しい担当の受注残へ移す。
+// 月も同じ（ユーザーの指示「何月分かっていうのを簡単に切り替えができるように…切り替えた分に関しては受注残に飛ばすときにも、その月の該当の月の受注残に含める」2026-10-26）：
+// 申請書・見積書作成の一覧の「売上月」で月を変えたら、受注残で月を手で直していない（次月へ移行もしていない）行はその月へ移す。
+// 特定福祉用具の案件の月は、申請書・見積書作成で変えた月（住宅改修のまとめの tokuteiMonths）があればそちら
 // test/taiyoLink.test.mjs がこの間をそのまま読んで確かめる
 const TAIYO_LINK_SOURCES = [
   { key: 'taiyo-jutaku-sales-v1', kind: 'jutaku', category: '住宅改修' },
@@ -218,7 +221,7 @@ const TAIYO_LINK_SOURCES = [
 const TAIYO_LINK_IGNORE_KEY = 'solar_silver_taiyo_link_ignored';
 const TAIYO_LINK_LATER_KEY = 'solar_silver_taiyo_link_later';
 const TAIYO_LINK_STAFF_KEY = 'solar_silver_taiyo_link_staff'; // 選んだ担当（申請書・見積書作成の担当の名前 → 受注残の担当者の id）
-const TAIYO_LINK_FIELDS = ['customerName', 'careHomeName', 'amount', 'salespersonId'];
+const TAIYO_LINK_FIELDS = ['customerName', 'careHomeName', 'amount', 'salespersonId', 'targetMonth'];
 const taiyoNormName = (value) => String(value || '').normalize('NFKC').replace(/[\s\u3000]+/g, '');
 // 担当の名前から受注残の担当者を探す：同じ名前（すき間・全角半角のちがいは同じ）→ この端末で前に選んだ担当 →
 // 姓だけが同じ人が1人だけ（「久保 匠史」と担当者「久保」、「久保」と担当者「久保 匠史」）。どれもなければ見つからない
@@ -239,14 +242,18 @@ const taiyoStaffOf = (name, salespersons, memory = {}) => {
 };
 const readTaiyoLinkRows = (storage, branchName) => {
   const out = [];
+  const read = (key) => { try { return JSON.parse(storage.getItem(key) || 'null'); } catch { return null; } };
+  const jutaku = read('taiyo-jutaku-sales-v1');
+  const tokuteiMonths = jutaku && jutaku.tokuteiMonths && typeof jutaku.tokuteiMonths === 'object' ? jutaku.tokuteiMonths : {};
   for (const src of TAIYO_LINK_SOURCES) {
-    let data = null;
-    try { data = JSON.parse(storage.getItem(src.key) || 'null'); } catch { data = null; }
+    const data = read(src.key);
     const rows = data && Array.isArray(data.rows) ? data.rows : [];
     for (const r of rows) {
       if (!r || typeof r !== 'object' || typeof r.id !== 'string' || !r.id) continue;
       const amount = Math.round(Number(r.amount) || 0);
-      const month = typeof r.month === 'string' && /^\d{4}-\d{2}$/.test(r.month) ? r.month : '';
+      const moved = src.kind === 'tokutei' ? tokuteiMonths[r.id] : undefined;
+      const rawMonth = typeof moved === 'string' && /^\d{4}-\d{2}$/.test(moved) ? moved : r.month;
+      const month = typeof rawMonth === 'string' && /^\d{4}-\d{2}$/.test(rawMonth) ? rawMonth : '';
       if (amount <= 0 || !month) continue;
       // 書いたアプリの営業所（設定の営業所）がこの画面の営業所とちがえば入れない（営業所がない古い形は、この端末の営業所とみなす）
       const office = typeof r.office === 'string' ? r.office.trim() : '';
@@ -286,8 +293,9 @@ const planTaiyoLink = (rows, orders, salespersons, ignored = [], staffMemory = {
     const patch = {};
     for (const f of TAIYO_LINK_FIELDS) {
       const next = row[f];
-      // 担当：見つからない名前・空の担当では変えない。前の版で入れた行（入れたときの担当がない）は変えない
-      if (f === 'salespersonId' && (next == null || !('salespersonId' in synced))) continue;
+      // 担当：見つからない名前・空の担当では変えない。担当・月は、前の版で入れた行（入れたときの値がない）は変えない
+      if (f === 'salespersonId' && next == null) continue;
+      if ((f === 'salespersonId' || f === 'targetMonth') && !(f in synced)) continue;
       if (String(next ?? '') === String(synced[f] ?? '')) continue; // 前に入れたときと同じ
       if (String(order[f] ?? '') !== String(synced[f] ?? '')) continue; // 受注残で手で直した項目はそのまま
       patch[f] = next;
@@ -318,13 +326,15 @@ const taiyoOrderDoc = (row, salespersonId, nowIso) => ({
   salespersonId: Number(salespersonId),
   createdAt: nowIso,
   taiyoLink: row.linkKey,
-  taiyoSynced: { customerName: row.customerName, careHomeName: row.careHomeName, amount: row.amount, salespersonId: row.salespersonId ?? null }
+  taiyoSynced: { customerName: row.customerName, careHomeName: row.careHomeName, amount: row.amount, salespersonId: row.salespersonId ?? null, targetMonth: row.targetMonth }
 });
 // 直す行の中身：変わった項目と、入れたときの値（taiyoSynced）。事業所名が変わり、区分が前の事業所名から決めたままなら区分も（包括・居宅）
 const taiyoOrderPatch = (item) => {
   const patch = { ...item.patch };
   const before = item.order.taiyoSynced || {};
   if ('careHomeName' in patch && item.order.source === inferSourceFromCareHomeName(before.careHomeName)) patch.source = inferSourceFromCareHomeName(patch.careHomeName);
+  // 月を移すときは、受注残一覧の「次月へ移行」「前月へ戻す」と同じく、次月・前月のチェックを外す
+  if ('targetMonth' in patch) Object.assign(patch, { isCarryOver: false, isMoveToPrevious: false });
   return { ...patch, taiyoSynced: { ...before, ...item.patch } };
 };
 // taiyo-link-end
@@ -1716,8 +1726,8 @@ const TaiyoLinkNotice = ({ plan, salespersons, onApply, onLater, onIgnore }) => 
   };
   const yen = (v) => `${Number(v || 0).toLocaleString()}円`;
   const staffName = (id) => salespersons.find((s) => Number(s.id) === Number(id))?.name || '—';
-  const LABEL = { amount: '金額', customerName: 'お客様名', careHomeName: '事業所名', salespersonId: '担当' };
-  const valueText = (f, v) => (f === 'amount' ? yen(v) : f === 'salespersonId' ? staffName(v) : v || '—');
+  const LABEL = { amount: '金額', customerName: 'お客様名', careHomeName: '事業所名', salespersonId: '担当', targetMonth: '月' };
+  const valueText = (f, v) => (f === 'amount' ? yen(v) : f === 'salespersonId' ? staffName(v) : f === 'targetMonth' ? (v ? formatMonth(v) : '—') : v || '—');
   const changeText = (x) => TAIYO_LINK_FIELDS.filter((f) => f in x.patch).map((f) => `${LABEL[f]} ${valueText(f, x.order[f])} → ${valueText(f, x.patch[f])}`).join('・');
   const adds = plan.adds.length;
   const updates = plan.updates.length;
@@ -3393,7 +3403,7 @@ const DataPortabilityCard = ({ onExport, onImportClick, importRef, onImport, log
 
 const PreviewModal = ({ onClose, onExport, isGeneratingPDF, branchSummary, data, branchTotalSourceFilter, setBranchTotalSourceFilter, branchSourceBreakdownOpen = {}, onToggleBranchSourceBreakdown = () => {}, currentMonth }) => <div className="fixed inset-0 z-[100] bg-slate-900/80 backdrop-blur-sm p-4 sm:p-8 overflow-y-auto flex items-start justify-center modal-overlay"><div className="bg-white w-full max-w-[1400px] rounded-2xl shadow-2xl overflow-hidden my-4 sm:my-8 modal-content"><div className="flex justify-between items-center p-4 sm:p-6 border-b border-slate-200 bg-slate-50 sticky top-0 z-10 print:hidden"><h2 className="text-2xl font-bold text-slate-800 flex items-center gap-2"><PieChart className="text-blue-500" />営業所合計 プレビュー</h2><div className="flex items-center gap-2"><button onClick={onExport} className="bg-blue-600 text-white px-6 py-2 rounded-xl font-bold shadow-sm flex items-center gap-2">{isGeneratingPDF ? <Loader2 size={18} className="animate-spin" /> : <FileDown size={18} />}印刷</button><button onClick={onClose} className="bg-slate-200 hover:bg-slate-300 text-slate-700 px-6 py-2 rounded-xl font-bold shadow-sm">閉じる</button></div></div><div className="p-4 sm:p-6 space-y-6"><BranchSourceFilter currentFilter={branchTotalSourceFilter} onChange={setBranchTotalSourceFilter} prefix="preview" /><BranchSummaryCards summary={branchSummary} staffBreakdown={data} openMap={branchSourceBreakdownOpen} onToggle={onToggleBranchSourceBreakdown} /><BacklogTotalCard totalAmt={branchSummary.rentalBacklogTotalAmt} baseAmt={branchSummary.rentalBacklogBaseAmt} hospitalPlanAmt={branchSummary.hospitalPlanBacklogAmt} newCnt={branchSummary.monthlyRentalNewCnt} newAmt={branchSummary.monthlyRentalNewAmt} existingCnt={branchSummary.monthlyRentalExistingCnt} existingAmt={branchSummary.monthlyRentalExistingAmt} currentMonth={currentMonth} /><Card noPadding className="border border-slate-200 shadow-xl rounded-2xl overflow-hidden"><div className="bg-blue-500 text-white px-5 py-3 font-bold text-base uppercase tracking-widest flex items-center gap-3"><TrendingUp size={18} />進捗ステータス詳細（全所員一覧）</div><ProgressTable data={data} staffIdFilter="all" /></Card></div></div></div>;
 
-const Usage = () => <section className="space-y-6"><SectionHeader icon={Info} title="アプリの使い方・活用術" subtitle="How to use & Tips" /><Card className="p-6 sm:p-10 space-y-10 shadow-md border-slate-200 text-slate-800"><div className="bg-blue-50 border border-blue-100 rounded-xl p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4"><div><h3 className="text-lg font-bold text-slate-800 mb-1">印刷用の説明書</h3><p className="text-sm font-bold text-slate-600 leading-relaxed">配布先の方は localhost ではなく、公開URLの説明書を開いてください。</p></div><a href="./manual.html" target="_blank" rel="noreferrer" className="shrink-0 bg-blue-600 text-white px-5 py-3 rounded-xl font-bold text-sm shadow-md hover:bg-blue-700 text-center">説明書を開く</a></div><div><h3 className="text-lg font-bold border-l-4 border-slate-800 pl-3 mb-4">最初にやるべきこと</h3><p className="text-sm pl-6 font-bold leading-relaxed text-slate-700">「マスタ設定」タブを開き、各スタッフの名前を追加した上で、今月の「予算」や「目標数値」を入力してください。<br />これにより、目標進捗や営業所合計のグラフが正しく描画されるようになります。</p></div><div className="border-b border-slate-100 pb-6"><h3 className="text-xl font-bold flex items-center gap-2 mb-4">正確な数値管理のために</h3><p className="font-bold leading-relaxed text-sm sm:text-base text-slate-800">正確な数値を算出するには、日々の受注案件を確実に入力することが重要です。入力を徹底することで、営業所全体の着地予測や個人の目標達成度が正しく可視化されます。</p></div><div className="space-y-6"><h3 className="text-lg font-bold border-l-4 border-slate-800 pl-3">各機能の役割と使い方</h3>{[[Plus, '登録', '新規案件や追加案件を入力します。別商品交換の場合は納品と回収の差額の金額を入力してください。'], [List, '受注残一覧', '登録案件の状態を管理します。担当者やカテゴリごとに案件を絞り込めます。'], [List, '申請書・見積書作成から', 'この端末で「申請書・見積書作成」の住宅改修・特定福祉用具の見積書を作ると、画面の上に「申請書・見積書作成から届いています」と出ます。「受注残に入れる」で、見積書の担当と同じ名前の担当者の受注残に入ります（金額・担当が変わったときも同じ）。担当者にいない名前は「担当を選ぶ」で選びます。受注残で手で直した所と売上済の行はそのままです。'], [PieChart, '営業所合計', '営業所全体の今月の実績と見込みを自動集計します。'], [BarChart3, '目標進捗', 'マスタで設定した個人目標に対する現在の達成状況を確認できます。'], [LineChart, '推移グラフ', '4月始まりの今年度の月別実績推移を表示します。']].map(([Icon, title, text]) => <div key={title} className="space-y-2"><p className="font-bold flex items-center gap-2 text-slate-800"><Icon size={18} className="text-slate-700" />{title}</p><p className="text-sm pl-6 leading-relaxed font-bold text-slate-700">{text}</p></div>)}</div></Card></section>;
+const Usage = () => <section className="space-y-6"><SectionHeader icon={Info} title="アプリの使い方・活用術" subtitle="How to use & Tips" /><Card className="p-6 sm:p-10 space-y-10 shadow-md border-slate-200 text-slate-800"><div className="bg-blue-50 border border-blue-100 rounded-xl p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4"><div><h3 className="text-lg font-bold text-slate-800 mb-1">印刷用の説明書</h3><p className="text-sm font-bold text-slate-600 leading-relaxed">配布先の方は localhost ではなく、公開URLの説明書を開いてください。</p></div><a href="./manual.html" target="_blank" rel="noreferrer" className="shrink-0 bg-blue-600 text-white px-5 py-3 rounded-xl font-bold text-sm shadow-md hover:bg-blue-700 text-center">説明書を開く</a></div><div><h3 className="text-lg font-bold border-l-4 border-slate-800 pl-3 mb-4">最初にやるべきこと</h3><p className="text-sm pl-6 font-bold leading-relaxed text-slate-700">「マスタ設定」タブを開き、各スタッフの名前を追加した上で、今月の「予算」や「目標数値」を入力してください。<br />これにより、目標進捗や営業所合計のグラフが正しく描画されるようになります。</p></div><div className="border-b border-slate-100 pb-6"><h3 className="text-xl font-bold flex items-center gap-2 mb-4">正確な数値管理のために</h3><p className="font-bold leading-relaxed text-sm sm:text-base text-slate-800">正確な数値を算出するには、日々の受注案件を確実に入力することが重要です。入力を徹底することで、営業所全体の着地予測や個人の目標達成度が正しく可視化されます。</p></div><div className="space-y-6"><h3 className="text-lg font-bold border-l-4 border-slate-800 pl-3">各機能の役割と使い方</h3>{[[Plus, '登録', '新規案件や追加案件を入力します。別商品交換の場合は納品と回収の差額の金額を入力してください。'], [List, '受注残一覧', '登録案件の状態を管理します。担当者やカテゴリごとに案件を絞り込めます。'], [List, '申請書・見積書作成から', 'この端末で「申請書・見積書作成」の住宅改修・特定福祉用具の見積書を作ると、画面の上に「申請書・見積書作成から届いています」と出ます。「受注残に入れる」で、見積書の担当と同じ名前の担当者の、売上月（申請書・見積書作成の一覧で切り替えた月）の受注残に入ります（金額・担当・月が変わったときも同じ）。担当者にいない名前は「担当を選ぶ」で選びます。受注残で手で直した所と売上済の行はそのままです。'], [PieChart, '営業所合計', '営業所全体の今月の実績と見込みを自動集計します。'], [BarChart3, '目標進捗', 'マスタで設定した個人目標に対する現在の達成状況を確認できます。'], [LineChart, '推移グラフ', '4月始まりの今年度の月別実績推移を表示します。']].map(([Icon, title, text]) => <div key={title} className="space-y-2"><p className="font-bold flex items-center gap-2 text-slate-800"><Icon size={18} className="text-slate-700" />{title}</p><p className="text-sm pl-6 leading-relaxed font-bold text-slate-700">{text}</p></div>)}</div></Card></section>;
 
 const createEmptySummary = () => ({
   rentalNew: { doneCnt: 0, doneAmt: 0, forecastCnt: 0, forecastAmt: 0, sourceCount: { 包括: 0, 居宅: 0, '退院/連携室': 0 } },

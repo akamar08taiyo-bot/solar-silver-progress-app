@@ -96,27 +96,28 @@ assert.deepEqual(await custNames(), ['見本 一郎', '見本 花子']); // 手�
 await page.getByRole('button', {name: '行橋営業所 全体'}).click();
 log('受注残一覧：担当を選ぶと、その担当の受注残に入っている OK');
 
-// 見積書の金額・居宅・担当が変わった → 「変わった案件」。入れると、その行の金額・事業所名・担当だけ直す（新しい担当の受注残へ）
+// 見積書の金額・居宅・担当・売上月が変わった → 「変わった案件」。入れると、その行の金額・事業所名・担当・月だけ直す（新しい担当の・新しい月の受注残へ）
 await page.evaluate((rows) => {
   localStorage.setItem('taiyo-jutaku-sales-v1', JSON.stringify({v: 1, updatedAt: Date.now(), rows}));
   window.dispatchEvent(new Event('focus'));
-}, [{...jutakuRows[0], amount: 130000, careOffice: '見本地域包括支援センター', staff: '見本 次郎'}, jutakuRows[1]]);
+}, [{...jutakuRows[0], amount: 130000, careOffice: '見本地域包括支援センター', staff: '見本 次郎', month: '2026-11'}, jutakuRows[1]]);
 await notice.waitFor();
 assert.match(await notice.innerText(), /金額などが変わった案件 1件/);
 assert.match(await notice.innerText(), /金額 120,000円 → 130,000円/);
 assert.match(await notice.innerText(), /担当 見本 太郎 → 見本 次郎/);
+assert.match(await notice.innerText(), /月 2026年10月 → 2026年11月/);
 await page.screenshot({path: path.join(out, 'link-update.png')});
 await notice.getByRole('button', {name: /^受注残に入れる/}).click();
 await notice.waitFor({state: 'detached'});
 const j1b = Object.values(await page.evaluate(() => window.__fakeFS)).find((v) => v.taiyoLink === 'jutaku:j1');
-assert.deepEqual([j1b.amount, j1b.careHomeName, j1b.source, j1b.salespersonId, j1b.targetMonth, j1b.taiyoSynced.amount], [130000, '見本地域包括支援センター', '包括', 2, '2026-10', 130000]);
-log('変わった案件：金額・事業所名（区分も）・担当だけ直す OK');
+assert.deepEqual([j1b.amount, j1b.careHomeName, j1b.source, j1b.salespersonId, j1b.targetMonth, j1b.taiyoSynced.amount], [130000, '見本地域包括支援センター', '包括', 2, '2026-11', 130000]);
+log('変わった案件：金額・事業所名（区分も）・担当・月だけ直す OK');
 
 // 「今は入れない」で、この画面を開いているあいだは出さない。「出さない」はこれからも出さない
 await page.evaluate((rows) => {
   localStorage.setItem('taiyo-jutaku-sales-v1', JSON.stringify({v: 1, updatedAt: Date.now(), rows}));
   window.dispatchEvent(new Event('focus'));
-}, [{...jutakuRows[0], amount: 130000, careOffice: '見本地域包括支援センター', staff: '見本 次郎'}, {id: 'j3', customer: '見本 三郎', staff: '例題　二郎', careOffice: '', month: '2026-11', amount: 7000, office: '行橋営業所'}, {id: 'j4', customer: '見本 四郎', staff: '', careOffice: '', month: '2026-11', amount: 8000, office: '行橋営業所'}]);
+}, [{...jutakuRows[0], amount: 130000, careOffice: '見本地域包括支援センター', staff: '見本 次郎', month: '2026-11'}, {id: 'j3', customer: '見本 三郎', staff: '例題　二郎', careOffice: '', month: '2026-11', amount: 7000, office: '行橋営業所'}, {id: 'j4', customer: '見本 四郎', staff: '', careOffice: '', month: '2026-11', amount: 8000, office: '行橋営業所'}]);
 await notice.waitFor();
 assert.equal(await notice.locator('tbody tr').count(), 2);
 assert.equal(await notice.getByLabel('見本 三郎の担当').inputValue(), '2'); // 前に選んだ担当（覚えている）
