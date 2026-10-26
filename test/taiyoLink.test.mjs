@@ -17,7 +17,7 @@ const pick = (name) => {
   return html.slice(line.index, end + 3);
 };
 const helpers = ['STATUS_RENTAL', 'STATUS_SALES', 'STATUS_HOSPITAL_PLAN', 'RENTAL_CATEGORIES', 'HOSPITAL_PLAN_CATEGORY', 'HOSPITAL_PLAN_LEGACY_CATEGORY', 'isHospitalPlanCategoryName', 'getStatusesByCategory', 'isCompletedStatus', 'inferSourceFromCareHomeName'].map(pick).join('\n');
-const lib = new Function(`${helpers}\n${block}\nreturn {readTaiyoLinkRows, planTaiyoLink, taiyoOrderDoc, taiyoOrderPatch, TAIYO_LINK_SOURCES};`)();
+const lib = new Function(`${helpers}\n${block}\nreturn {readTaiyoLinkRows, planTaiyoLink, taiyoOrderDoc, taiyoOrderPatch, taiyoStaffOf, TAIYO_LINK_SOURCES};`)();
 
 const storage = (data) => ({getItem: (k) => (k in data ? data[k] : null)});
 const jutaku = (rows) => JSON.stringify({v: 1, updatedAt: 1, rows});
@@ -121,6 +121,53 @@ test('新しく足す行：受注残一覧の「行を追加」と同じ初め�
     salespersonId: 2,
     createdAt: '2026-10-26T00:00:00.000Z',
     taiyoLink: 'tokutei:t1',
-    taiyoSynced: {customerName: '見本 花子', careHomeName: '見本地域包括支援センター', amount: 28000},
+    taiyoSynced: {customerName: '見本 花子', careHomeName: '見本地域包括支援センター', amount: 28000, salespersonId: null},
   });
+  // 入れたときの担当は、見積書の担当から探した担当（お知らせで選び直した担当ではない）
+  assert.deepEqual([lib.taiyoOrderDoc({...row, salespersonId: 1}, 2, '').salespersonId, lib.taiyoOrderDoc({...row, salespersonId: 1}, 2, '').taiyoSynced.salespersonId], [2, 1]);
+});
+
+test('担当を探す（ユーザーの指示「受注残の中でも担当の受注残に入るように紐づける」）：同じ名前（すき間・全角半角）→ 前に選んだ担当 → 姓だけ同じ人が1人', () => {
+  const staff = [
+    {id: 1, name: '見本 太郎'},
+    {id: 2, name: '例題'},
+    {id: 3, name: '試験 花子'},
+    {id: 4, name: '試験 一郎'},
+  ];
+  const id = (name, memory) => lib.taiyoStaffOf(name, staff, memory)?.id ?? null;
+  assert.equal(id('見本太郎'), 1);
+  assert.equal(id('見本　太郎'), 1);
+  assert.equal(id('ﾐﾎﾝ'), null);
+  assert.equal(id('見本'), 1); // 姓だけ（担当者は姓と名）
+  assert.equal(id('例題 二郎'), 2); // 担当者は姓だけ
+  assert.equal(id('例題二郎'), null); // すき間がなければ、どこまでが姓か分からない
+  assert.equal(id('試験'), null); // 姓が同じ人が2人
+  assert.equal(id('試験 次郎'), null);
+  assert.equal(id(''), null);
+  assert.equal(id('いない人'), null);
+  // この端末で前に選んだ担当（同じ名前の担当者がいればそちら。いなくなった担当者は使わない）
+  assert.equal(id('例題二郎', {例題二郎: 2}), 2);
+  assert.equal(id('試験次郎', {試験次郎: 4}), 4);
+  assert.equal(id('見本太郎', {見本太郎: 3}), 1);
+  assert.equal(id('いない人', {いない人: 99}), null);
+  // 見くらべるときも使う
+  const row = {linkKey: 'jutaku:j7', category: '住宅改修', customerName: '見本 七子', careHomeName: '', staffName: '例題二郎', amount: 1000, targetMonth: '2026-10'};
+  assert.equal(lib.planTaiyoLink([row], [], staff, [], {例題二郎: 2}).adds[0].salespersonId, 2);
+  assert.equal(lib.planTaiyoLink([row], [], staff).adds[0].salespersonId, null);
+});
+
+test('担当が変わった：見積書で担当を変えたら、受注残で担当を手で直していない行は新しい担当へ。見つからない担当・前の版で入れた行はそのまま', () => {
+  const synced = {customerName: '見本 花子', careHomeName: '', amount: 1000, salespersonId: 1};
+  const order = {id: 'order_5', taiyoLink: 'tokutei:t5', status: '未売上', customerName: '見本 花子', careHomeName: '', amount: 1000, salespersonId: 1, targetMonth: '2026-10', taiyoSynced: synced};
+  const row = {linkKey: 'tokutei:t5', category: '特定福祉用具販売', customerName: '見本 花子', careHomeName: '', staffName: '見本 次郎', amount: 1000, targetMonth: '2026-10'};
+  const plan = lib.planTaiyoLink([row], [order], STAFF);
+  assert.deepEqual(plan.updates.map((x) => x.patch), [{salespersonId: 2}]);
+  assert.deepEqual(lib.taiyoOrderPatch(plan.updates[0]), {salespersonId: 2, taiyoSynced: {...synced, salespersonId: 2}});
+  // 同じ担当のまま・受注残で担当を手で直した・見つからない担当・空の担当・入れたときの担当がない（前の版）は直さない
+  assert.deepEqual(lib.planTaiyoLink([{...row, staffName: '見本 太郎'}], [order], STAFF).updates, []);
+  assert.deepEqual(lib.planTaiyoLink([row], [{...order, salespersonId: 3}], STAFF).updates, []);
+  assert.deepEqual(lib.planTaiyoLink([{...row, staffName: 'いない人'}], [order], STAFF).updates, []);
+  assert.deepEqual(lib.planTaiyoLink([{...row, staffName: ''}], [order], STAFF).updates, []);
+  const {salespersonId: _old, ...oldSynced} = synced;
+  assert.deepEqual(lib.planTaiyoLink([row], [{...order, taiyoSynced: oldSynced}], STAFF).updates, []);
 });

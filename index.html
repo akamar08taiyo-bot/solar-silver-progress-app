@@ -206,7 +206,10 @@ const inferSourceFromCareHomeName = (value) => {
 // 同じサイトなので、2つのアプリがこの端末の localStorage に書いた案件ごとのまとめを読む（住宅改修 taiyo-jutaku-sales-v1・特定福祉用具 taiyo-tokutei-sales-v1。
 // 形はそれぞれのアプリの salesSummary）。受注残に入れるのは、画面の「受注残に入れる」を押したときだけ。
 // 入れた行には taiyoLink（どの案件か）と taiyoSynced（入れたときのお客様名・事業所名・金額）を持つ。あとで金額などが変わったら、
-// 受注残で手で直していない項目だけを直す（売上済の行・手で直した項目・担当・月はそのまま）。受注残の行を消すことはしない。
+// 受注残で手で直していない項目だけを直す（売上済の行・手で直した項目・月はそのまま）。受注残の行を消すことはしない。
+// 担当は、申請書・見積書作成の担当の名前で受注残の担当者（マスタ設定）につなぐ（ユーザーの指示「受注残にそのまま飛ばす際には、受注残の中でも担当の受注残に入るように紐づける」
+// 2026-10-26）。見つからなければ選ぶまで入れない（前は画面で選んでいる担当に入った）。一度選んだ担当はこの端末で覚え、次から同じ名前はその担当に。
+// 見積書で担当を変えたら、受注残で担当を手で直していない行は新しい担当の受注残へ移す
 // test/taiyoLink.test.mjs がこの間をそのまま読んで確かめる
 const TAIYO_LINK_SOURCES = [
   { key: 'taiyo-jutaku-sales-v1', kind: 'jutaku', category: '住宅改修' },
@@ -214,8 +217,26 @@ const TAIYO_LINK_SOURCES = [
 ];
 const TAIYO_LINK_IGNORE_KEY = 'solar_silver_taiyo_link_ignored';
 const TAIYO_LINK_LATER_KEY = 'solar_silver_taiyo_link_later';
-const TAIYO_LINK_FIELDS = ['customerName', 'careHomeName', 'amount'];
-const taiyoNormName = (value) => String(value || '').replace(/[\s\u3000]+/g, '');
+const TAIYO_LINK_STAFF_KEY = 'solar_silver_taiyo_link_staff'; // 選んだ担当（申請書・見積書作成の担当の名前 → 受注残の担当者の id）
+const TAIYO_LINK_FIELDS = ['customerName', 'careHomeName', 'amount', 'salespersonId'];
+const taiyoNormName = (value) => String(value || '').normalize('NFKC').replace(/[\s\u3000]+/g, '');
+// 担当の名前から受注残の担当者を探す：同じ名前（すき間・全角半角のちがいは同じ）→ この端末で前に選んだ担当 →
+// 姓だけが同じ人が1人だけ（「久保 匠史」と担当者「久保」、「久保」と担当者「久保 匠史」）。どれもなければ見つからない
+const taiyoStaffOf = (name, salespersons, memory = {}) => {
+  const n = taiyoNormName(name);
+  if (!n) return undefined;
+  const list = salespersons.filter((s) => s && s.id != null && taiyoNormName(s.name));
+  const exact = list.find((s) => taiyoNormName(s.name) === n);
+  if (exact) return exact;
+  const remembered = memory && memory[n] != null ? list.find((s) => Number(s.id) === Number(memory[n])) : undefined;
+  if (remembered) return remembered;
+  const family = (v) => String(v || '').normalize('NFKC').trim().split(/[\s\u3000]+/)[0];
+  const near = list.filter((s) => {
+    const m = taiyoNormName(s.name);
+    return m === family(name) || family(s.name) === n;
+  });
+  return near.length === 1 ? near[0] : undefined;
+};
 const readTaiyoLinkRows = (storage, branchName) => {
   const out = [];
   for (const src of TAIYO_LINK_SOURCES) {
@@ -235,14 +256,10 @@ const readTaiyoLinkRows = (storage, branchName) => {
   }
   return out;
 };
-const planTaiyoLink = (rows, orders, salespersons, ignored = []) => {
+const planTaiyoLink = (rows, orders, salespersons, ignored = [], staffMemory = {}) => {
   const ignoredSet = new Set(ignored);
   const byLink = new Map();
   for (const o of orders) if (o && typeof o.taiyoLink === 'string' && o.taiyoLink && !byLink.has(o.taiyoLink)) byLink.set(o.taiyoLink, o);
-  const staffOf = (name) => {
-    const n = taiyoNormName(name);
-    return n ? salespersons.find((s) => taiyoNormName(s?.name) === n) : undefined;
-  };
   // 重ねて入れない（ユーザーの指示「受注残のアプリに転記する場合は、保存する場合に重複しないようにする」2026-10-26）：
   // 同じ案件は taiyoLink で見つける。ほかに、同じお客様・同じ区分・同じ月で売上済でない行が受注残にあれば（手で入れた行・別に作った同じ案件）、新しく足さない。
   // 届いた中でも、同じお客様・区分・月・金額の案件は1つだけ
@@ -251,7 +268,9 @@ const planTaiyoLink = (rows, orders, salespersons, ignored = []) => {
   const addedKeys = new Set();
   const adds = [];
   const updates = [];
-  for (const row of rows) {
+  for (const raw of rows) {
+    const staff = taiyoStaffOf(raw.staffName, salespersons, staffMemory);
+    const row = { ...raw, salespersonId: staff ? Number(staff.id) : null };
     const order = byLink.get(row.linkKey);
     if (!order) {
       // お客様名のない案件（作りかけ）と「出さない」にした案件は出さない
@@ -259,8 +278,7 @@ const planTaiyoLink = (rows, orders, salespersons, ignored = []) => {
       const key = sameKey(row.customerName, row.category, row.targetMonth);
       if (existing.has(key) || addedKeys.has(`${key}|${row.amount}`)) continue;
       addedKeys.add(`${key}|${row.amount}`);
-      const staff = staffOf(row.staffName);
-      adds.push({ ...row, salespersonId: staff ? Number(staff.id) : null });
+      adds.push(row);
       continue;
     }
     if (isCompletedStatus(order.status)) continue;
@@ -268,6 +286,8 @@ const planTaiyoLink = (rows, orders, salespersons, ignored = []) => {
     const patch = {};
     for (const f of TAIYO_LINK_FIELDS) {
       const next = row[f];
+      // 担当：見つからない名前・空の担当では変えない。前の版で入れた行（入れたときの担当がない）は変えない
+      if (f === 'salespersonId' && (next == null || !('salespersonId' in synced))) continue;
       if (String(next ?? '') === String(synced[f] ?? '')) continue; // 前に入れたときと同じ
       if (String(order[f] ?? '') !== String(synced[f] ?? '')) continue; // 受注残で手で直した項目はそのまま
       patch[f] = next;
@@ -276,7 +296,8 @@ const planTaiyoLink = (rows, orders, salespersons, ignored = []) => {
   }
   return { adds, updates };
 };
-// 新しく足す行（ほかの項目は受注残一覧の「行を追加」と同じ初めの値。状態は 未売上）
+// 新しく足す行（ほかの項目は受注残一覧の「行を追加」と同じ初めの値。状態は 未売上）。salespersonId は入れる担当（お知らせで選び直した担当）。
+// 入れたときの値（taiyoSynced）の担当は、見積書の担当から探した担当（選び直したときは、見積書で担当を変えても動かさない）
 const taiyoOrderDoc = (row, salespersonId, nowIso) => ({
   customerName: row.customerName,
   careHomeName: row.careHomeName,
@@ -297,7 +318,7 @@ const taiyoOrderDoc = (row, salespersonId, nowIso) => ({
   salespersonId: Number(salespersonId),
   createdAt: nowIso,
   taiyoLink: row.linkKey,
-  taiyoSynced: { customerName: row.customerName, careHomeName: row.careHomeName, amount: row.amount }
+  taiyoSynced: { customerName: row.customerName, careHomeName: row.careHomeName, amount: row.amount, salespersonId: row.salespersonId ?? null }
 });
 // 直す行の中身：変わった項目と、入れたときの値（taiyoSynced）。事業所名が変わり、区分が前の事業所名から決めたままなら区分も（包括・居宅）
 const taiyoOrderPatch = (item) => {
@@ -1666,31 +1687,38 @@ const PDFTemplate = React.forwardRef(({ branchName, currentMonth, branchSummary,
   );
 });
 
-// 申請書・見積書作成から届いた案件のお知らせ（taiyo-link）。チェックした行だけ「受注残に入れる」。担当は行ごとに選び直せる
-const TaiyoLinkNotice = ({ plan, salespersons, defaultStaffId, onApply, onLater, onIgnore }) => {
+// 申請書・見積書作成から届いた案件のお知らせ（taiyo-link）。チェックした行だけ「受注残に入れる」。担当は行ごとに選び直せる。
+// 担当が見つからない行は「担当を選ぶ」のまま（選ぶまで入れない。ほかの人の受注残に入らないように）
+const TaiyoLinkNotice = ({ plan, salespersons, onApply, onLater, onIgnore }) => {
   const items = useMemo(() => [...plan.adds.map((x) => ({ ...x, type: 'add' })), ...plan.updates.map((x) => ({ ...x, type: 'update' }))], [plan]);
   const [unchecked, setUnchecked] = useState(() => new Set());
   const [staffPick, setStaffPick] = useState({});
   const [busy, setBusy] = useState(false);
-  const fallbackStaffId = salespersons.some((s) => Number(s.id) === Number(defaultStaffId)) ? Number(defaultStaffId) : Number(salespersons[0]?.id ?? 0);
-  const staffIdOf = (x) => Number(staffPick[x.linkKey] ?? x.salespersonId ?? fallbackStaffId);
+  const staffIdOf = (x) => {
+    const id = staffPick[x.linkKey] ?? x.salespersonId;
+    return id != null && salespersons.some((s) => Number(s.id) === Number(id)) ? Number(id) : null;
+  };
   const picked = items.filter((x) => !unchecked.has(x.linkKey));
+  const noStaff = picked.filter((x) => x.type === 'add' && staffIdOf(x) == null).length;
   const toggle = (key) => setUnchecked((prev) => {
     const next = new Set(prev);
     if (next.has(key)) next.delete(key); else next.add(key);
     return next;
   });
   const apply = async () => {
-    if (!picked.length || busy) return;
+    if (!picked.length || busy || noStaff) return;
     setBusy(true);
     try {
-      await onApply(picked.map((x) => (x.type === 'add' ? { ...x, salespersonId: staffIdOf(x) } : x)));
+      await onApply(picked.map((x) => (x.type === 'add' ? { ...x, staffId: staffIdOf(x) } : x)));
     } finally {
       setBusy(false);
     }
   };
   const yen = (v) => `${Number(v || 0).toLocaleString()}円`;
-  const changeText = (x) => TAIYO_LINK_FIELDS.filter((f) => f in x.patch).map((f) => `${f === 'amount' ? '金額' : f === 'customerName' ? 'お客様名' : '事業所名'} ${f === 'amount' ? yen(x.order[f]) : x.order[f] || '—'} → ${f === 'amount' ? yen(x.patch[f]) : x.patch[f] || '—'}`).join('・');
+  const staffName = (id) => salespersons.find((s) => Number(s.id) === Number(id))?.name || '—';
+  const LABEL = { amount: '金額', customerName: 'お客様名', careHomeName: '事業所名', salespersonId: '担当' };
+  const valueText = (f, v) => (f === 'amount' ? yen(v) : f === 'salespersonId' ? staffName(v) : v || '—');
+  const changeText = (x) => TAIYO_LINK_FIELDS.filter((f) => f in x.patch).map((f) => `${LABEL[f]} ${valueText(f, x.order[f])} → ${valueText(f, x.patch[f])}`).join('・');
   const adds = plan.adds.length;
   const updates = plan.updates.length;
   return (
@@ -1701,7 +1729,8 @@ const TaiyoLinkNotice = ({ plan, salespersons, defaultStaffId, onApply, onLater,
           <div className="text-xs font-bold text-slate-600">{adds > 0 && `新しい案件 ${adds}件`}{adds > 0 && updates > 0 && '・'}{updates > 0 && `金額などが変わった案件 ${updates}件`}</div>
         </div>
         <div className="flex gap-2">
-          <button type="button" onClick={apply} disabled={!picked.length || busy || !salespersons.length} className="px-4 py-2 rounded-xl font-bold text-sm text-white bg-blue-500 hover:bg-blue-600 shadow-sm disabled:opacity-40">{busy ? '入れています…' : `受注残に入れる（${picked.length}件）`}</button>
+          {noStaff > 0 && <span className="self-center text-xs font-bold text-amber-700">担当を選んでください</span>}
+          <button type="button" onClick={apply} disabled={!picked.length || busy || !salespersons.length || noStaff > 0} className="px-4 py-2 rounded-xl font-bold text-sm text-white bg-blue-500 hover:bg-blue-600 shadow-sm disabled:opacity-40">{busy ? '入れています…' : `受注残に入れる（${picked.length}件）`}</button>
           <button type="button" onClick={onLater} className="px-4 py-2 rounded-xl font-bold text-sm text-slate-700 bg-white border border-slate-200 hover:bg-slate-50">今は入れない</button>
         </div>
       </div>
@@ -1729,10 +1758,11 @@ const TaiyoLinkNotice = ({ plan, salespersons, defaultStaffId, onApply, onLater,
                 <td className="p-2 whitespace-nowrap">{x.careHomeName || '—'}</td>
                 <td className="p-2 whitespace-nowrap">
                   {x.type === 'add' ? (
-                    <select value={staffIdOf(x)} onChange={(e) => setStaffPick((prev) => ({ ...prev, [x.linkKey]: Number(e.target.value) }))} aria-label={`${x.customerName}の担当`} className="rounded-lg border border-slate-200 px-2 py-1 text-sm">
+                    <select value={staffIdOf(x) ?? ''} onChange={(e) => setStaffPick((prev) => ({ ...prev, [x.linkKey]: e.target.value === '' ? null : Number(e.target.value) }))} aria-label={`${x.customerName}の担当`} title={x.staffName ? `見積書の担当：${x.staffName}` : undefined} className={`rounded-lg border px-2 py-1 text-sm ${staffIdOf(x) == null ? 'border-amber-300 bg-amber-50' : 'border-slate-200'}`}>
+                      {staffIdOf(x) == null && <option value="">担当を選ぶ</option>}
                       {salespersons.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
                     </select>
-                  ) : (salespersons.find((s) => Number(s.id) === Number(x.order.salespersonId))?.name || '—')}
+                  ) : staffName(x.order.salespersonId)}
                 </td>
                 <td className="p-2 text-right tabular-nums">{x.type === 'add' ? <span className="whitespace-nowrap">{yen(x.amount)}</span> : <span className="inline-block min-w-[14rem] text-xs">{changeText(x)}</span>}</td>
                 <td className="p-2 whitespace-nowrap">{x.type === 'add' ? formatMonth(x.targetMonth) : formatMonth(x.order.targetMonth || x.targetMonth)}</td>
@@ -1998,7 +2028,8 @@ const MainApp = ({ branchSetting }) => {
     if (isLoading || branchSetting.isHeadOffice) return { adds: [], updates: [] };
     try {
       const ignored = JSON.parse(localStorage.getItem(TAIYO_LINK_IGNORE_KEY) || '[]');
-      return planTaiyoLink(readTaiyoLinkRows(localStorage, BRANCH_NAME), orders, salespersons, Array.isArray(ignored) ? ignored : []);
+      const memory = JSON.parse(localStorage.getItem(TAIYO_LINK_STAFF_KEY) || '{}');
+      return planTaiyoLink(readTaiyoLinkRows(localStorage, BRANCH_NAME), orders, salespersons, Array.isArray(ignored) ? ignored : [], memory && typeof memory === 'object' ? memory : {});
     } catch {
       return { adds: [], updates: [] };
     }
@@ -2008,11 +2039,23 @@ const MainApp = ({ branchSetting }) => {
     const nowIso = new Date().toISOString();
     const stamp = Date.now();
     picked.forEach((item, i) => {
-      if (item.type === 'add') batch.set(doc(db, ...basePath, 'orders', `order_${stamp}_${i}`), taiyoOrderDoc(item, item.salespersonId, nowIso));
+      if (item.type === 'add') batch.set(doc(db, ...basePath, 'orders', `order_${stamp}_${i}`), taiyoOrderDoc(item, item.staffId, nowIso));
       else batch.update(doc(db, ...basePath, 'orders', item.orderId), taiyoOrderPatch(item));
     });
     try {
       await batch.commit();
+      // 選んだ担当を覚える（見積書の担当の名前で、次から同じ担当に。見つかった担当のままなら覚えない）
+      try {
+        const memory = JSON.parse(localStorage.getItem(TAIYO_LINK_STAFF_KEY) || '{}') || {};
+        let changed = false;
+        for (const item of picked) {
+          const name = taiyoNormName(item.staffName);
+          if (item.type !== 'add' || !name || item.staffId == null || Number(item.staffId) === Number(item.salespersonId)) continue;
+          memory[name] = Number(item.staffId);
+          changed = true;
+        }
+        if (changed) localStorage.setItem(TAIYO_LINK_STAFF_KEY, JSON.stringify(memory));
+      } catch {}
       showMessage(`受注残に入れました（${picked.length}件）`);
     } catch {
       showError('受注残に入れられませんでした。通信状況をご確認のうえ、もう一度お試しください。');
@@ -2644,7 +2687,7 @@ const MainApp = ({ branchSetting }) => {
         </div>
       </nav>
       <main className="max-w-6xl mx-auto p-4 sm:p-6 space-y-6">
-        {!taiyoLinkLater && (taiyoLinkPlan.adds.length > 0 || taiyoLinkPlan.updates.length > 0) && <TaiyoLinkNotice plan={taiyoLinkPlan} salespersons={salespersons} defaultStaffId={entryStaffId} onApply={handleTaiyoLinkApply} onLater={handleTaiyoLinkLater} onIgnore={handleTaiyoLinkIgnore} />}
+        {!taiyoLinkLater && (taiyoLinkPlan.adds.length > 0 || taiyoLinkPlan.updates.length > 0) && <TaiyoLinkNotice plan={taiyoLinkPlan} salespersons={salespersons} onApply={handleTaiyoLinkApply} onLater={handleTaiyoLinkLater} onIgnore={handleTaiyoLinkIgnore} />}
         {activeTab === 'new_entry' && <section className="space-y-6"><SectionHeader icon={Plus} title="新規案件登録" subtitle="New Entry" /><NewEntryForm salespersons={salespersons} onSubmit={handleEntrySubmit} selectedStaffId={entryStaffId} onStaffChange={setEntryStaffId} /><div className="space-y-4 pt-6"><h3 className="text-xl font-bold text-slate-800 flex items-center gap-2 px-2"><div className="w-2.5 h-6 bg-blue-400 rounded-full" />本日の登録内容</h3><OrderTable items={entryStaffOrders} onUpdate={updateOrderField} onDelete={deleteOrder} salespersons={salespersons} /></div></section>}
         {activeTab === 'branch_total' && <section className="space-y-4">
           <div className="flex justify-between items-start mb-2 print:hidden"><SectionHeader icon={PieChart} title={`${BRANCH_NAME} 合計・見込み`} subtitle="Branch Status" /><div className="flex items-center gap-2"><button onClick={handleExportPDF} disabled={isGeneratingPDF} className="bg-blue-600 text-white px-5 py-3 rounded-xl font-bold shadow-lg hover:bg-blue-700 flex items-center gap-3 disabled:opacity-50">{isGeneratingPDF ? <Loader2 size={20} className="animate-spin" /> : <FileDown size={20} />}印刷</button><button onClick={() => setShowBranchPreview(true)} className="bg-emerald-500 text-white px-4 py-2.5 rounded-xl font-bold text-sm shadow-md hover:bg-emerald-600 flex items-center gap-2"><Users size={18} />全体プレビュー</button></div></div>
@@ -3350,7 +3393,7 @@ const DataPortabilityCard = ({ onExport, onImportClick, importRef, onImport, log
 
 const PreviewModal = ({ onClose, onExport, isGeneratingPDF, branchSummary, data, branchTotalSourceFilter, setBranchTotalSourceFilter, branchSourceBreakdownOpen = {}, onToggleBranchSourceBreakdown = () => {}, currentMonth }) => <div className="fixed inset-0 z-[100] bg-slate-900/80 backdrop-blur-sm p-4 sm:p-8 overflow-y-auto flex items-start justify-center modal-overlay"><div className="bg-white w-full max-w-[1400px] rounded-2xl shadow-2xl overflow-hidden my-4 sm:my-8 modal-content"><div className="flex justify-between items-center p-4 sm:p-6 border-b border-slate-200 bg-slate-50 sticky top-0 z-10 print:hidden"><h2 className="text-2xl font-bold text-slate-800 flex items-center gap-2"><PieChart className="text-blue-500" />営業所合計 プレビュー</h2><div className="flex items-center gap-2"><button onClick={onExport} className="bg-blue-600 text-white px-6 py-2 rounded-xl font-bold shadow-sm flex items-center gap-2">{isGeneratingPDF ? <Loader2 size={18} className="animate-spin" /> : <FileDown size={18} />}印刷</button><button onClick={onClose} className="bg-slate-200 hover:bg-slate-300 text-slate-700 px-6 py-2 rounded-xl font-bold shadow-sm">閉じる</button></div></div><div className="p-4 sm:p-6 space-y-6"><BranchSourceFilter currentFilter={branchTotalSourceFilter} onChange={setBranchTotalSourceFilter} prefix="preview" /><BranchSummaryCards summary={branchSummary} staffBreakdown={data} openMap={branchSourceBreakdownOpen} onToggle={onToggleBranchSourceBreakdown} /><BacklogTotalCard totalAmt={branchSummary.rentalBacklogTotalAmt} baseAmt={branchSummary.rentalBacklogBaseAmt} hospitalPlanAmt={branchSummary.hospitalPlanBacklogAmt} newCnt={branchSummary.monthlyRentalNewCnt} newAmt={branchSummary.monthlyRentalNewAmt} existingCnt={branchSummary.monthlyRentalExistingCnt} existingAmt={branchSummary.monthlyRentalExistingAmt} currentMonth={currentMonth} /><Card noPadding className="border border-slate-200 shadow-xl rounded-2xl overflow-hidden"><div className="bg-blue-500 text-white px-5 py-3 font-bold text-base uppercase tracking-widest flex items-center gap-3"><TrendingUp size={18} />進捗ステータス詳細（全所員一覧）</div><ProgressTable data={data} staffIdFilter="all" /></Card></div></div></div>;
 
-const Usage = () => <section className="space-y-6"><SectionHeader icon={Info} title="アプリの使い方・活用術" subtitle="How to use & Tips" /><Card className="p-6 sm:p-10 space-y-10 shadow-md border-slate-200 text-slate-800"><div className="bg-blue-50 border border-blue-100 rounded-xl p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4"><div><h3 className="text-lg font-bold text-slate-800 mb-1">印刷用の説明書</h3><p className="text-sm font-bold text-slate-600 leading-relaxed">配布先の方は localhost ではなく、公開URLの説明書を開いてください。</p></div><a href="./manual.html" target="_blank" rel="noreferrer" className="shrink-0 bg-blue-600 text-white px-5 py-3 rounded-xl font-bold text-sm shadow-md hover:bg-blue-700 text-center">説明書を開く</a></div><div><h3 className="text-lg font-bold border-l-4 border-slate-800 pl-3 mb-4">最初にやるべきこと</h3><p className="text-sm pl-6 font-bold leading-relaxed text-slate-700">「マスタ設定」タブを開き、各スタッフの名前を追加した上で、今月の「予算」や「目標数値」を入力してください。<br />これにより、目標進捗や営業所合計のグラフが正しく描画されるようになります。</p></div><div className="border-b border-slate-100 pb-6"><h3 className="text-xl font-bold flex items-center gap-2 mb-4">正確な数値管理のために</h3><p className="font-bold leading-relaxed text-sm sm:text-base text-slate-800">正確な数値を算出するには、日々の受注案件を確実に入力することが重要です。入力を徹底することで、営業所全体の着地予測や個人の目標達成度が正しく可視化されます。</p></div><div className="space-y-6"><h3 className="text-lg font-bold border-l-4 border-slate-800 pl-3">各機能の役割と使い方</h3>{[[Plus, '登録', '新規案件や追加案件を入力します。別商品交換の場合は納品と回収の差額の金額を入力してください。'], [List, '受注残一覧', '登録案件の状態を管理します。担当者やカテゴリごとに案件を絞り込めます。'], [List, '申請書・見積書作成から', 'この端末で「申請書・見積書作成」の住宅改修・特定福祉用具の見積書を作ると、画面の上に「申請書・見積書作成から届いています」と出ます。「受注残に入れる」で受注残に入ります（金額が変わったときも同じ）。受注残で手で直した所と売上済の行はそのままです。'], [PieChart, '営業所合計', '営業所全体の今月の実績と見込みを自動集計します。'], [BarChart3, '目標進捗', 'マスタで設定した個人目標に対する現在の達成状況を確認できます。'], [LineChart, '推移グラフ', '4月始まりの今年度の月別実績推移を表示します。']].map(([Icon, title, text]) => <div key={title} className="space-y-2"><p className="font-bold flex items-center gap-2 text-slate-800"><Icon size={18} className="text-slate-700" />{title}</p><p className="text-sm pl-6 leading-relaxed font-bold text-slate-700">{text}</p></div>)}</div></Card></section>;
+const Usage = () => <section className="space-y-6"><SectionHeader icon={Info} title="アプリの使い方・活用術" subtitle="How to use & Tips" /><Card className="p-6 sm:p-10 space-y-10 shadow-md border-slate-200 text-slate-800"><div className="bg-blue-50 border border-blue-100 rounded-xl p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4"><div><h3 className="text-lg font-bold text-slate-800 mb-1">印刷用の説明書</h3><p className="text-sm font-bold text-slate-600 leading-relaxed">配布先の方は localhost ではなく、公開URLの説明書を開いてください。</p></div><a href="./manual.html" target="_blank" rel="noreferrer" className="shrink-0 bg-blue-600 text-white px-5 py-3 rounded-xl font-bold text-sm shadow-md hover:bg-blue-700 text-center">説明書を開く</a></div><div><h3 className="text-lg font-bold border-l-4 border-slate-800 pl-3 mb-4">最初にやるべきこと</h3><p className="text-sm pl-6 font-bold leading-relaxed text-slate-700">「マスタ設定」タブを開き、各スタッフの名前を追加した上で、今月の「予算」や「目標数値」を入力してください。<br />これにより、目標進捗や営業所合計のグラフが正しく描画されるようになります。</p></div><div className="border-b border-slate-100 pb-6"><h3 className="text-xl font-bold flex items-center gap-2 mb-4">正確な数値管理のために</h3><p className="font-bold leading-relaxed text-sm sm:text-base text-slate-800">正確な数値を算出するには、日々の受注案件を確実に入力することが重要です。入力を徹底することで、営業所全体の着地予測や個人の目標達成度が正しく可視化されます。</p></div><div className="space-y-6"><h3 className="text-lg font-bold border-l-4 border-slate-800 pl-3">各機能の役割と使い方</h3>{[[Plus, '登録', '新規案件や追加案件を入力します。別商品交換の場合は納品と回収の差額の金額を入力してください。'], [List, '受注残一覧', '登録案件の状態を管理します。担当者やカテゴリごとに案件を絞り込めます。'], [List, '申請書・見積書作成から', 'この端末で「申請書・見積書作成」の住宅改修・特定福祉用具の見積書を作ると、画面の上に「申請書・見積書作成から届いています」と出ます。「受注残に入れる」で、見積書の担当と同じ名前の担当者の受注残に入ります（金額・担当が変わったときも同じ）。担当者にいない名前は「担当を選ぶ」で選びます。受注残で手で直した所と売上済の行はそのままです。'], [PieChart, '営業所合計', '営業所全体の今月の実績と見込みを自動集計します。'], [BarChart3, '目標進捗', 'マスタで設定した個人目標に対する現在の達成状況を確認できます。'], [LineChart, '推移グラフ', '4月始まりの今年度の月別実績推移を表示します。']].map(([Icon, title, text]) => <div key={title} className="space-y-2"><p className="font-bold flex items-center gap-2 text-slate-800"><Icon size={18} className="text-slate-700" />{title}</p><p className="text-sm pl-6 leading-relaxed font-bold text-slate-700">{text}</p></div>)}</div></Card></section>;
 
 const createEmptySummary = () => ({
   rentalNew: { doneCnt: 0, doneAmt: 0, forecastCnt: 0, forecastAmt: 0, sourceCount: { 包括: 0, 居宅: 0, '退院/連携室': 0 } },
