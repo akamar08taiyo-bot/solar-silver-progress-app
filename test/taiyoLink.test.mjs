@@ -61,6 +61,22 @@ test('見くらべる：受注残にない案件は「新しい」（担当は�
   assert.deepEqual(plan.updates, []);
 });
 
+test('重ねて入れない：同じお客様・区分・月の行が受注残にあれば足さない（手で入れた行・別に作った同じ案件）。届いた中の同じ案件も1つだけ', () => {
+  const row = {linkKey: 'tokutei:t9', category: '特定福祉用具販売', customerName: '見本 花子', careHomeName: '', staffName: '', amount: 28000, targetMonth: '2026-10'};
+  const hand = {id: 'order_9', status: '未売上', customerName: '見本　花子', category: '特定福祉用具販売', targetMonth: '2026-10', amount: 28000};
+  assert.deepEqual(lib.planTaiyoLink([row], [hand], STAFF), {adds: [], updates: []});
+  // 売上済の行・ほかの区分・ほかの月なら、新しい案件として出す
+  assert.equal(lib.planTaiyoLink([row], [{...hand, status: '売上済'}], STAFF).adds.length, 1);
+  assert.equal(lib.planTaiyoLink([row], [{...hand, category: '住宅改修'}], STAFF).adds.length, 1);
+  assert.equal(lib.planTaiyoLink([row], [{...hand, targetMonth: '2026-11'}], STAFF).adds.length, 1);
+  // 届いた中で同じお客様・区分・月・金額の案件（同じ案件を2つ作っていた）は1つだけ。金額がちがえば別の案件
+  assert.deepEqual(lib.planTaiyoLink([row, {...row, linkKey: 'tokutei:t10'}], [], STAFF).adds.map((x) => x.linkKey), ['tokutei:t9']);
+  assert.equal(lib.planTaiyoLink([row, {...row, linkKey: 'tokutei:t10', amount: 9000}], [], STAFF).adds.length, 2);
+  // 入れたあと保存しなおしても（同じ taiyoLink）足さない
+  const linked = {...hand, taiyoLink: 'tokutei:t9', taiyoSynced: {customerName: '見本 花子', careHomeName: '', amount: 28000}, customerName: '見本 花子', careHomeName: ''};
+  assert.deepEqual(lib.planTaiyoLink([row], [linked], STAFF), {adds: [], updates: []});
+});
+
 test('見くらべる：入れた行は、変わった項目だけ直す。受注残で手で直した項目・売上済の行はそのまま', () => {
   const synced = {customerName: '見本 花子', careHomeName: '見本居宅介護支援事業所', amount: 120000};
   const order = {id: 'order_1', taiyoLink: 'jutaku:j1', status: '未売上', customerName: '見本 花子', careHomeName: '見本居宅介護支援事業所', amount: 120000, source: '居宅', salespersonId: 1, targetMonth: '2026-10', taiyoSynced: synced};

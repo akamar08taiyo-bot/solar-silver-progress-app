@@ -243,6 +243,12 @@ const planTaiyoLink = (rows, orders, salespersons, ignored = []) => {
     const n = taiyoNormName(name);
     return n ? salespersons.find((s) => taiyoNormName(s?.name) === n) : undefined;
   };
+  // 重ねて入れない（ユーザーの指示「受注残のアプリに転記する場合は、保存する場合に重複しないようにする」2026-10-26）：
+  // 同じ案件は taiyoLink で見つける。ほかに、同じお客様・同じ区分・同じ月で売上済でない行が受注残にあれば（手で入れた行・別に作った同じ案件）、新しく足さない。
+  // 届いた中でも、同じお客様・区分・月・金額の案件は1つだけ
+  const sameKey = (name, category, month) => `${taiyoNormName(name)}|${category}|${month}`;
+  const existing = new Set(orders.filter((o) => o && !isCompletedStatus(o.status) && o.customerName).map((o) => sameKey(o.customerName, o.category, o.targetMonth)));
+  const addedKeys = new Set();
   const adds = [];
   const updates = [];
   for (const row of rows) {
@@ -250,6 +256,9 @@ const planTaiyoLink = (rows, orders, salespersons, ignored = []) => {
     if (!order) {
       // お客様名のない案件（作りかけ）と「出さない」にした案件は出さない
       if (!row.customerName || ignoredSet.has(row.linkKey)) continue;
+      const key = sameKey(row.customerName, row.category, row.targetMonth);
+      if (existing.has(key) || addedKeys.has(`${key}|${row.amount}`)) continue;
+      addedKeys.add(`${key}|${row.amount}`);
       const staff = staffOf(row.staffName);
       adds.push({ ...row, salespersonId: staff ? Number(staff.id) : null });
       continue;
