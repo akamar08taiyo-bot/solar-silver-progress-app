@@ -224,7 +224,8 @@ const TAIYO_LINK_STAFF_KEY = 'solar_silver_taiyo_link_staff'; // 選んだ担当
 const TAIYO_LINK_FIELDS = ['customerName', 'careHomeName', 'amount', 'salespersonId', 'targetMonth'];
 const taiyoNormName = (value) => String(value || '').normalize('NFKC').replace(/[\s\u3000]+/g, '');
 // 担当の名前から受注残の担当者を探す：同じ名前（すき間・全角半角のちがいは同じ）→ この端末で前に選んだ担当 →
-// 姓だけが同じ人が1人だけ（「久保 匠史」と担当者「久保」、「久保」と担当者「久保 匠史」）。どれもなければ見つからない
+// 姓だけが同じ人が1人だけ（「久保 匠史」と担当者「久保」、「久保」と担当者「久保 匠史」。ユーザーの話「久保・土居・宮村で苗字は全く同じで同一人物です」2026-10-26）→
+// すき間のない名前（「久保匠史」）は、担当者の姓（2字以上）で始まる人が1人だけ。どれもなければ見つからない
 const taiyoStaffOf = (name, salespersons, memory = {}) => {
   const n = taiyoNormName(name);
   if (!n) return undefined;
@@ -238,7 +239,13 @@ const taiyoStaffOf = (name, salespersons, memory = {}) => {
     const m = taiyoNormName(s.name);
     return m === family(name) || family(s.name) === n;
   });
-  return near.length === 1 ? near[0] : undefined;
+  if (near.length === 1) return near[0];
+  if (near.length > 1 || /[\s\u3000]/.test(String(name).trim())) return undefined;
+  const head = list.filter((s) => {
+    const f = taiyoNormName(family(s.name));
+    return f.length >= 2 && n.length > f.length && n.startsWith(f);
+  });
+  return head.length === 1 ? head[0] : undefined;
 };
 const readTaiyoLinkRows = (storage, branchName) => {
   const out = [];

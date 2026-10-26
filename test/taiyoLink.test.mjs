@@ -140,20 +140,24 @@ test('担当を探す（ユーザーの指示「受注残の中でも担当の�
   assert.equal(id('ﾐﾎﾝ'), null);
   assert.equal(id('見本'), 1); // 姓だけ（担当者は姓と名）
   assert.equal(id('例題 二郎'), 2); // 担当者は姓だけ
-  assert.equal(id('例題二郎'), null); // すき間がなければ、どこまでが姓か分からない
+  assert.equal(id('例題二郎'), 2); // すき間がなくても、担当者の姓（2字以上）で始まる人が1人なら同じ人
+  assert.equal(id('試験次郎'), null); // 姓が同じ人が2人
   assert.equal(id('試験'), null); // 姓が同じ人が2人
   assert.equal(id('試験 次郎'), null);
   assert.equal(id(''), null);
   assert.equal(id('いない人'), null);
   // この端末で前に選んだ担当（同じ名前の担当者がいればそちら。いなくなった担当者は使わない）
-  assert.equal(id('例題二郎', {例題二郎: 2}), 2);
+  assert.equal(id('例題三郎', {例題三郎: 1}), 1); // 前に選んだ担当が先
   assert.equal(id('試験次郎', {試験次郎: 4}), 4);
   assert.equal(id('見本太郎', {見本太郎: 3}), 1);
   assert.equal(id('いない人', {いない人: 99}), null);
   // 見くらべるときも使う
-  const row = {linkKey: 'jutaku:j7', category: '住宅改修', customerName: '見本 七子', careHomeName: '', staffName: '例題二郎', amount: 1000, targetMonth: '2026-10'};
-  assert.equal(lib.planTaiyoLink([row], [], staff, [], {例題二郎: 2}).adds[0].salespersonId, 2);
+  const row = {linkKey: 'jutaku:j7', category: '住宅改修', customerName: '見本 七子', careHomeName: '', staffName: '試験次郎', amount: 1000, targetMonth: '2026-10'};
+  assert.equal(lib.planTaiyoLink([row], [], staff, [], {試験次郎: 4}).adds[0].salespersonId, 4);
   assert.equal(lib.planTaiyoLink([row], [], staff).adds[0].salespersonId, null);
+  // 担当者を姓だけで登録（ユーザーの話「久保・土居・宮村で苗字は全く同じで同一人物です」2026-10-26）：姓と名の担当、すき間のない担当も同じ人
+  const family = [{id: 1, name: '見本'}, {id: 2, name: '例題'}, {id: 3, name: '試験'}];
+  for (const [name, want] of [['見本 太郎', 1], ['例題　二郎', 2], ['試験', 3], ['試験三郎', 3], ['見本例', 1], ['いない人', null]]) assert.equal(lib.taiyoStaffOf(name, family)?.id ?? null, want, name);
 });
 
 test('担当が変わった：見積書で担当を変えたら、受注残で担当を手で直していない行は新しい担当へ。見つからない担当・前の版で入れた行はそのまま', () => {
