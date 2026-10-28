@@ -33,7 +33,15 @@
     <!-- バージョンを固定する。番号なしだと常に最新版が読み込まれ、Babel側の更新で
          全営業所のアプリが予告なく動かなくなるおそれがあるため。 -->
     <script src="https://unpkg.com/@babel/standalone@7.29.9/babel.min.js"></script>
-  </head>
+  <style>
+/* 業務アプリポータルへ戻るボタン（太陽ポータルの全アプリ共通。色・大きさ・字はどのアプリでも同じにするため、アプリの書式に負けないよう !important。
+   ユーザーの指示「太陽ポータルに戻るボタンは左上に設置。太陽ポータル全アプリ共通にする。色や大きさも含めて統一する」2026-10-28。決まりは taiyo-portal スキル） */
+.taiyo-portal-back{display:inline-flex!important;align-items:center!important;gap:4px;box-sizing:border-box!important;height:34px!important;margin:0;padding:0 12px!important;border:1px solid #cbd5e1!important;border-radius:8px!important;background:#fff!important;color:#334155!important;font:500 13px/1 "Hiragino Kaku Gothic ProN","Hiragino Sans","Yu Gothic UI","Yu Gothic","Meiryo",sans-serif!important;letter-spacing:0!important;text-decoration:none!important;white-space:nowrap!important;flex:none!important;box-shadow:0 1px 2px rgba(15,23,42,.08)!important}
+.taiyo-portal-back:hover{background:#f1f5f9!important;color:#0f172a!important}
+.taiyo-portal-back:focus-visible{outline:2px solid #64748b!important;outline-offset:2px}
+@media print{.taiyo-portal-back{display:none!important}}
+</style>
+</head>
   <body class="bg-slate-50">
     <div id="root"></div>
     <script type="text/babel" data-type="module">
@@ -2686,10 +2694,12 @@ const MainApp = ({ branchSetting }) => {
       {notification && <div role={notification.type === 'error' ? 'alert' : 'status'} className={`fixed top-6 left-1/2 -translate-x-1/2 z-[100] px-6 py-3 rounded-xl shadow-xl font-bold text-sm text-white flex items-center gap-3 border border-white/10 print:hidden ${notification.type === 'error' ? 'bg-rose-700' : 'bg-slate-900'}`}>{notification.type === 'error' ? <AlertCircle size={18} className="text-rose-200" /> : <CheckCircle2 size={18} className="text-emerald-400" />}{notification.text}</div>}
       {showUpdateConfirm && <UpdateConfirmModal salespersons={salespersons} onClose={() => setShowUpdateConfirm(false)} onConfirm={handleToggleStaffUpdateConfirm} />}
       <PDFTemplate branchName={BRANCH_NAME} currentMonth={currentMonth} branchSummary={branchSummary} branchTotalPersonDetailedSummary={branchTotalPersonDetailedSummary} rankingInsights={rankingInsights} />
+      {/* 業務アプリポータルへ戻るボタンは左上（広い画面は題名の左、スマホは題名の上の段（上に貼りつく見出しの外。見出しの高さを変えないように）。全アプリ共通の形 .taiyo-portal-back。
+          ユーザーの指示「太陽ポータルに戻るボタンは左上に設置。太陽ポータル全アプリ共通にする。色や大きさも含めて統一する」2026-10-28。前は題名の上の小さな灰色の文字） */}
+      <div className="sm:hidden max-w-6xl mx-auto px-5 pt-3 bg-white print:hidden"><a href="https://akamar08taiyo-bot.github.io/taiyo-portal/" className="taiyo-portal-back">← 業務アプリポータルへ戻る</a></div>
       <header className="bg-white border-b border-slate-100 sticky top-0 z-50 shadow-sm print:hidden">
-        <div className="max-w-6xl mx-auto px-5 pt-1"><a href="https://akamar08taiyo-bot.github.io/taiyo-portal/" className="text-[10.5px] text-slate-400 hover:text-slate-600">← 業務アプリポータルへ戻る</a></div>
         <div className="max-w-6xl mx-auto px-5 h-20 flex items-center justify-between">
-          <div className="flex items-center gap-4"><ShieldCheck size={32} className="text-blue-500 hidden sm:block" /><div><h1 className="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight">受注残・進捗管理表</h1><p className="text-xs font-bold text-blue-500">{BRANCH_NAME}</p></div></div>
+          <div className="flex items-center gap-4"><div className="hidden sm:block"><a href="https://akamar08taiyo-bot.github.io/taiyo-portal/" className="taiyo-portal-back">← 業務アプリポータルへ戻る</a></div><ShieldCheck size={32} className="text-blue-500 hidden sm:block" /><div><h1 className="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight">受注残・進捗管理表</h1><p className="text-xs font-bold text-blue-500">{BRANCH_NAME}</p></div></div>
           <div className="flex items-center gap-3">
             <button onClick={handleResetBranchSetting} className="hidden sm:block text-xs font-bold text-slate-600 bg-slate-50 hover:bg-slate-100 border border-slate-200 px-3 py-2 rounded-xl">設定変更</button>
             <button onClick={() => setShowUpdateConfirm(true)} className="flex items-center gap-1.5 text-xs font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 px-2 sm:px-3 py-2 rounded-xl"><CheckCircle2 size={15} /><span className="hidden sm:inline">更新確認</span><span className="sm:hidden">確認</span></button>
