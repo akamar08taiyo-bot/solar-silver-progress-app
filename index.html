@@ -3788,7 +3788,8 @@ const App = () => {
             localStorage.setItem('solar_silver_branch_setting', JSON.stringify(headOfficeSetting));
             setBranchSetting(headOfficeSetting);
           } else {
-            setBranchSetting(setting);
+            const office = portalSessionOfficeName();
+            if (!office || office === setting.name) setBranchSetting(setting);
           }
         } else {
           localStorage.removeItem('solar_silver_branch_setting');
